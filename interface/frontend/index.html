@@ -1,0 +1,1948 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ÉMERGENCE V5 - Extension de Conscience</title>
+    <style>
+        /* === RESET ET BASE === */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f0f23 100%);
+            min-height: 100vh;
+            color: #e0e0e0;
+            overflow-x: hidden;
+        }
+
+        /* === LAYOUT PRINCIPAL === */
+        .app-container {
+            display: flex;
+            height: 100vh;
+            position: relative;
+        }
+
+        /* === SIDEBAR V5 ÉPURÉE === */
+        .sidebar {
+            width: 320px;
+            background: rgba(30, 30, 60, 0.85);
+            backdrop-filter: blur(15px);
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            box-shadow: 2px 0 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .sidebar h1 {
+            font-size: 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* === CONSOMMATION API EN HAUT === */
+        .cost-tracker {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .cost-tracker h3 {
+            font-size: 14px;
+            color: #4ecdc4;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .cost-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .cost-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+        }
+
+        .cost-total {
+            font-weight: 600;
+            color: #ffa500;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            padding-top: 8px;
+            margin-top: 8px;
+        }
+
+        /* === STATUS CONNEXION === */
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            margin-bottom: 15px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ff6b6b;
+            transition: all 0.3s ease;
+        }
+
+        .status-dot.connected { background: #4ecdc4; }
+        .status-dot.connecting { background: #ffa500; }
+
+        /* === SECTION MODES V5 === */
+        .modes-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .modes-section h2 {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: #a0a0a0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .mode-tabs {
+            display: flex;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 4px;
+            margin-bottom: 15px;
+        }
+
+        .mode-tab {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: #a0a0a0;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+
+        .mode-tab.active {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            font-weight: 600;
+        }
+
+        /* === MODE DIALOGUE === */
+        .mode-content {
+            display: none;
+        }
+
+        .mode-content.active {
+            display: block;
+        }
+
+        .agent-selector {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .agent-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .agent-card:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-1px);
+        }
+
+        .agent-card.selected {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.3), rgba(118, 75, 162, 0.3));
+            border-color: #667eea;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .agent-icon {
+            font-size: 20px;
+        }
+
+        .agent-info {
+            flex: 1;
+        }
+
+        .agent-name {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+
+        .agent-desc {
+            font-size: 10px;
+            opacity: 0.8;
+        }
+
+        /* === MODE TRIANGLE === */
+        .triangle-launcher {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .triangle-button {
+            background: linear-gradient(135deg, #ff6b6b, #ffa500);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 15px 20px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+
+        .triangle-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(255, 107, 107, 0.4);
+        }
+
+        .triangle-info {
+            margin-top: 15px;
+            font-size: 11px;
+            opacity: 0.7;
+            line-height: 1.4;
+        }
+
+        /* === MODE DOCUMENTS === */
+        .documents-mode {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .agent-multi-selector {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        .agent-multi-selector h4 {
+            font-size: 12px;
+            color: #a0a0a0;
+            margin-bottom: 8px;
+        }
+
+        .agents-checkboxes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .agent-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 6px 10px;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: all 0.3s ease;
+        }
+
+        .agent-checkbox:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .agent-checkbox.selected {
+            background: rgba(102, 126, 234, 0.3);
+            color: #667eea;
+        }
+
+        .agent-checkbox input {
+            margin: 0;
+            width: 12px;
+            height: 12px;
+        }
+
+        .documents-list {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 10px;
+            max-height: 180px;
+            overflow-y: auto;
+        }
+
+        .documents-list h4 {
+            font-size: 12px;
+            color: #a0a0a0;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .document-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 0;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .document-checkbox input {
+            margin: 0;
+            width: 12px;
+            height: 12px;
+        }
+
+        .document-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .document-chunks {
+            color: #ffa500;
+            font-size: 10px;
+        }
+
+        /* === RAG SECTION === */
+        .rag-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .rag-section h3 {
+            font-size: 14px;
+            margin-bottom: 15px;
+            color: #4ecdc4;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .rag-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 15px;
+        }
+
+        .switch {
+            position: relative;
+            width: 50px;
+            height: 24px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .switch.active {
+            background: #4ecdc4;
+        }
+
+        .switch-handle {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            transition: all 0.3s ease;
+        }
+
+        .switch.active .switch-handle {
+            transform: translateX(26px);
+        }
+
+        .chunks-slider {
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        /* === UPLOAD ZONE === */
+        .upload-zone {
+            border: 2px dashed rgba(255, 255, 255, 0.3);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .upload-zone:hover {
+            border-color: #4ecdc4;
+            background: rgba(78, 205, 196, 0.1);
+        }
+
+        .upload-zone.dragover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.1);
+        }
+
+        .upload-zone .upload-icon {
+            font-size: 24px;
+            margin-bottom: 8px;
+            opacity: 0.7;
+        }
+
+        .upload-zone .upload-text {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        /* === MAIN CONTENT === */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: rgba(20, 20, 40, 0.3);
+            backdrop-filter: blur(10px);
+        }
+
+        /* === HEADER V5 ÉPURÉ === */
+        .header {
+            padding: 20px 30px;
+            background: rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .current-mode-indicator {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+        }
+
+        .mode-icon {
+            font-size: 20px;
+        }
+
+        .mode-details {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .mode-name {
+            font-weight: 600;
+        }
+
+        .mode-config {
+            font-size: 11px;
+            opacity: 0.7;
+        }
+
+        /* === ACTIONS HEADER - AMÉLIORÉES === */
+        .action-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 8px 12px;
+            cursor: pointer;
+            color: #e0e0e0;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .action-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-1px);
+        }
+
+        /* === CHAT CONTAINER === */
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 20px 30px;
+            overflow: hidden;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 10px;
+            margin-bottom: 20px;
+        }
+
+        /* === MESSAGES - INCHANGÉES === */
+        .message {
+            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            max-width: 85%;
+        }
+
+        .message.user {
+            align-self: flex-end;
+            align-items: flex-end;
+        }
+
+        .message.assistant {
+            align-self: flex-start;
+            align-items: flex-start;
+        }
+
+        .message-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        .message-bubble {
+            padding: 15px 20px;
+            border-radius: 18px;
+            position: relative;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            hyphens: auto;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+
+        .message.user .message-bubble {
+            background: linear-gradient(135deg, 
+                rgba(102, 126, 234, 0.3) 0%, 
+                rgba(118, 75, 162, 0.3) 100%);
+            border: 1px solid rgba(102, 126, 234, 0.4);
+            border-bottom-right-radius: 6px;
+        }
+
+        .message.assistant .message-bubble {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-bottom-left-radius: 6px;
+        }
+
+        .message-content {
+            line-height: 1.5;
+            font-size: 14px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+
+        .message-metadata {
+            font-size: 10px;
+            opacity: 0.6;
+            margin-top: 5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .metadata-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2px 6px;
+            border-radius: 8px;
+        }
+
+        /* === TRIPLE CHAT LAYOUT === */
+        .triple-chat {
+            display: none;
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-rows: 1fr auto;
+            gap: 20px;
+            height: 100%;
+            padding: 20px;
+        }
+
+        .triple-chat.active {
+            display: grid;
+        }
+
+        .triple-agent-column {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .triple-agent-header {
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px 12px 0 0;
+            text-align: center;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .triple-agent-messages {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .triple-message {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        /* === INPUT AREA TRIANGLE === */
+        .triple-input-area {
+            grid-column: 1 / -1;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 25px;
+            padding: 15px 20px;
+            display: flex;
+            align-items: flex-end;
+            gap: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        #triangleMessageInput {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: white;
+            font-size: 14px;
+            resize: none;
+            min-height: 24px;
+            max-height: 100px;
+            outline: none;
+            font-family: inherit;
+            line-height: 1.5;
+        }
+
+        #triangleMessageInput::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* === INPUT AREA === */
+        .input-area {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 25px;
+            padding: 15px 20px;
+            display: flex;
+            align-items: flex-end;
+            gap: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .input-container {
+            flex: 1;
+            position: relative;
+        }
+
+        #messageInput {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: white;
+            font-size: 14px;
+            resize: none;
+            min-height: 24px;
+            max-height: 100px;
+            outline: none;
+            font-family: inherit;
+            line-height: 1.5;
+        }
+
+        #messageInput::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .send-button {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            flex-shrink: 0;
+        }
+
+        .send-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .send-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* === STATUS INDICATORS === */
+        .typing-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 18px;
+            margin-bottom: 10px;
+            opacity: 0.8;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 4px;
+        }
+
+        .typing-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #667eea;
+            animation: typing 1.4s infinite ease-in-out;
+        }
+
+        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes typing {
+            0%, 80%, 100% {
+                transform: scale(0.8);
+                opacity: 0.5;
+            }
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        /* === LOADING ANIMATION === */
+        .loading-dots {
+            display: inline-block;
+        }
+
+        .loading-dots::after {
+            content: '';
+            animation: dots 1.5s infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: ''; }
+            40% { content: '.'; }
+            60% { content: '..'; }
+            80%, 100% { content: '...'; }
+        }
+
+        /* === MICRO-ANIMATIONS === */
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* === SCROLLBAR CUSTOM === */
+        .chat-messages::-webkit-scrollbar,
+        .documents-list::-webkit-scrollbar,
+        .triple-agent-messages::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-messages::-webkit-scrollbar-track,
+        .documents-list::-webkit-scrollbar-track,
+        .triple-agent-messages::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb,
+        .documents-list::-webkit-scrollbar-thumb,
+        .triple-agent-messages::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 3px;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb:hover,
+        .documents-list::-webkit-scrollbar-thumb:hover,
+        .triple-agent-messages::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.5);
+        }
+
+        /* === RESPONSIVE === */
+        @media (max-width: 768px) {
+            .app-container {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                height: auto;
+                padding: 15px;
+            }
+
+            .main-content {
+                flex: 1;
+            }
+
+            .chat-container {
+                padding: 15px;
+            }
+
+            .message {
+                max-width: 95%;
+            }
+
+            .message-bubble {
+                padding: 12px 16px;
+                font-size: 13px;
+            }
+
+            .triple-chat {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- SIDEBAR V5 -->
+        <div class="sidebar">
+            <h1>✨ ÉMERGENCE V5</h1>
+            
+            <!-- CONSOMMATION API -->
+            <div class="cost-tracker">
+                <h3>💰 Consommation Session</h3>
+                <div class="cost-grid">
+                    <div class="cost-item">
+                        <span>🎭 Anima:</span>
+                        <span id="costAnima">$0.00</span>
+                    </div>
+                    <div class="cost-item">
+                        <span>⚡ Neo:</span>
+                        <span id="costNeo">$0.00</span>
+                    </div>
+                    <div class="cost-item">
+                        <span>🧠 Nexus:</span>
+                        <span id="costNexus">$0.00</span>
+                    </div>
+                    <div class="cost-item">
+                        <span>🔀 Triple:</span>
+                        <span id="costTriple">$0.00</span>
+                    </div>
+                </div>
+                <div class="cost-total">
+                    <div class="cost-item">
+                        <span>Total:</span>
+                        <span id="costTotal">$0.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- CONNECTION STATUS -->
+            <div class="connection-status">
+                <div class="status-dot" id="connectionDot"></div>
+                <span id="connectionText">Connexion...</span>
+            </div>
+            
+            <!-- MODES V5 -->
+            <div class="modes-section">
+                <h2>🎯 Modes Discussion</h2>
+                
+                <!-- TABS MODES -->
+                <div class="mode-tabs">
+                    <button class="mode-tab active" data-mode="dialogue">💬 Dialogue</button>
+                    <button class="mode-tab" data-mode="triangle">🔀 Triangle</button>
+                    <button class="mode-tab" data-mode="documents">📁 Documents</button>
+                </div>
+                
+                <!-- MODE DIALOGUE SIMPLE -->
+                <div class="mode-content active" id="modeDialogue">
+                    <div class="agent-selector">
+                        <div class="agent-card selected" data-agent="anima">
+                            <div class="agent-icon">🎭</div>
+                            <div class="agent-info">
+                                <div class="agent-name">Anima</div>
+                                <div class="agent-desc">Mystique & Intuitive</div>
+                            </div>
+                        </div>
+                        
+                        <div class="agent-card" data-agent="neo">
+                            <div class="agent-icon">⚡</div>
+                            <div class="agent-info">
+                                <div class="agent-name">Neo</div>
+                                <div class="agent-desc">Punk & Constructif</div>
+                            </div>
+                        </div>
+                        
+                        <div class="agent-card" data-agent="nexus">
+                            <div class="agent-icon">🧠</div>
+                            <div class="agent-info">
+                                <div class="agent-name">Nexus</div>
+                                <div class="agent-desc">Sage & Coquin</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- MODE TRIANGLE -->
+                <div class="mode-content" id="modeTriangle">
+                    <div class="triangle-launcher">
+                        <button class="triangle-button" onclick="startTripleMode()">
+                            🔀 Lancer Débat Triangulaire
+                        </button>
+                        <div class="triangle-info">
+                            Les 3 agents débattent ensemble sur votre sujet. 
+                            Anima apporte l'intuition, Neo la critique constructive, 
+                            Nexus la synthèse équilibrée.
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- MODE DOCUMENTS -->
+                <div class="mode-content" id="modeDocuments">
+                    <div class="documents-mode">
+                        <!-- Sélection agents multiples -->
+                        <div class="agent-multi-selector">
+                            <h4>🤖 Agents sélectionnés:</h4>
+                            <div class="agents-checkboxes">
+                                <label class="agent-checkbox">
+                                    <input type="checkbox" name="agents" value="anima" checked>
+                                    <span>🎭 Anima</span>
+                                </label>
+                                <label class="agent-checkbox">
+                                    <input type="checkbox" name="agents" value="neo">
+                                    <span>⚡ Neo</span>
+                                </label>
+                                <label class="agent-checkbox">
+                                    <input type="checkbox" name="agents" value="nexus">
+                                    <span>🧠 Nexus</span>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <!-- Sélection documents -->
+                        <div class="documents-list">
+                            <h4>
+                                📄 Documents (<span id="docCount">0</span>)
+                                <span style="font-size: 10px; opacity: 0.7;">Sélectionner</span>
+                            </h4>
+                            <div id="documentsList">
+                                <!-- Documents chargés dynamiquement -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- RAG CONFIGURATION -->
+            <div class="rag-section">
+                <h3>🧠 Configuration RAG</h3>
+                
+                <div class="rag-toggle">
+                    <span>Utiliser RAG</span>
+                    <div class="switch active" onclick="toggleRAG()" id="ragSwitch">
+                        <div class="switch-handle"></div>
+                    </div>
+                </div>
+                
+                <div>
+                    <label>Chunks: <span id="chunksValue">5</span></label>
+                    <input type="range" class="chunks-slider" min="1" max="10" value="5" 
+                           oninput="updateChunks(this.value)" id="chunksSlider">
+                </div>
+            </div>
+            
+            <!-- UPLOAD ZONE -->
+            <div class="upload-zone" onclick="document.getElementById('fileInput').click()">
+                <div class="upload-icon">📤</div>
+                <div class="upload-text">
+                    Glisser ou cliquer pour uploader<br>
+                    <small style="opacity: 0.7;">PDF, DOCX, TXT, MD, JSON</small>
+                </div>
+            </div>
+            
+            <input type="file" id="fileInput" style="display: none;" 
+                   accept=".pdf,.docx,.txt,.md,.json" onchange="uploadFile(this)">
+        </div>
+        
+        <!-- MAIN CONTENT -->
+        <div class="main-content">
+            <!-- HEADER V5 ÉPURÉ -->
+            <div class="header">
+                <div class="current-mode-indicator">
+                    <div class="mode-icon" id="currentModeIcon">💬</div>
+                    <div class="mode-details">
+                        <div class="mode-name" id="currentModeName">Mode Dialogue</div>
+                        <div class="mode-config" id="currentModeConfig">Agent: Anima • RAG: Activé</div>
+                    </div>
+                </div>
+                
+                <!-- Actions épurées -->
+                <div style="display: flex; gap: 10px;">
+                    <button class="action-btn" onclick="clearChat()" title="Effacer conversation">
+                        🗑️ Clear
+                    </button>
+                    <button class="action-btn" onclick="exportChat()" title="Exporter conversation">
+                        💾 Export
+                    </button>
+                </div>
+            </div>
+            
+            <!-- CHAT NORMAL -->
+            <div class="chat-container" id="normalChat">
+                <div class="chat-messages" id="chatMessages">
+                    <div style="text-align: center; padding: 2rem; opacity: 0.7;">
+                        <h2>🌟 Bienvenue dans ÉMERGENCE V5</h2>
+                        <p>Sélectionnez un mode et commencez votre conversation !</p>
+                    </div>
+                </div>
+                
+                <div class="input-area">
+                    <div class="input-container">
+                        <textarea id="messageInput" placeholder="Posez votre question..." 
+                                rows="1" onkeydown="handleInputKeydown(event)"></textarea>
+                    </div>
+                    <button class="send-button" onclick="sendMessage()" id="sendButton">
+                        ➤
+                    </button>
+                </div>
+            </div>
+            
+            <!-- CHAT TRIPLE (DÉBAT 3 COLONNES) -->
+            <div class="triple-chat" id="tripleChat">
+                <div class="triple-agent-column">
+                    <div class="triple-agent-header">🎭 Anima</div>
+                    <div class="triple-agent-messages" id="animaMessages">
+                        <!-- Messages Anima -->
+                    </div>
+                </div>
+                
+                <div class="triple-agent-column">
+                    <div class="triple-agent-header">⚡ Neo</div>
+                    <div class="triple-agent-messages" id="neoMessages">
+                        <!-- Messages Neo -->
+                    </div>
+                </div>
+                
+                <div class="triple-agent-column">
+                    <div class="triple-agent-header">🧠 Nexus</div>
+                    <div class="triple-agent-messages" id="nexusMessages">
+                        <!-- Messages Nexus -->
+                    </div>
+                </div>
+                
+                <!-- INPUT AREA POUR MODE TRIANGLE -->
+                <div class="triple-input-area">
+                    <div class="input-container">
+                        <textarea id="triangleMessageInput" placeholder="Tapez votre sujet de débat triangulaire..." 
+                                rows="1" onkeydown="handleTriangleInputKeydown(event)"></textarea>
+                    </div>
+                    <button class="send-button" onclick="sendTriangleMessage()" id="triangleSendButton">
+                        🔀
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // === VARIABLES GLOBALES V5 ===
+        let ws = null;
+        let currentMode = 'dialogue';
+        let selectedAgent = 'anima';
+        let selectedAgents = ['anima']; // Pour mode documents
+        let selectedDocuments = [];
+        let ragEnabled = true;
+        let chunksLimit = 5;
+        let isConnected = false;
+        let currentSessionId = null;
+        let sessionCosts = {
+            anima: 0.0,
+            neo: 0.0,
+            nexus: 0.0,
+            triple: 0.0,
+            total: 0.0
+        };
+        let conversationHistory = []; // 🆕 Pour export
+
+        // === INITIALISATION ===
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeApp();
+        });
+
+        function initializeApp() {
+            currentSessionId = `session_${Math.random().toString(36).substr(2, 9)}_${Date.now()}`;
+            console.log(`🚀 ÉMERGENCE V5 - Session: ${currentSessionId}`);
+            
+            connectWebSocket();
+            loadDocuments();
+            setupEventListeners();
+            updateModeIndicator();
+            
+            // Auto-resize textarea normal
+            const textarea = document.getElementById('messageInput');
+            textarea.addEventListener('input', autoResizeTextarea);
+            
+            // Auto-resize textarea Triangle
+            const triangleTextarea = document.getElementById('triangleMessageInput');
+            if (triangleTextarea) {
+                triangleTextarea.addEventListener('input', autoResizeTriangleTextarea);
+            }
+        }
+
+        // === EVENT LISTENERS V5 ===
+        function setupEventListeners() {
+            // Mode tabs
+            document.querySelectorAll('.mode-tab').forEach(tab => {
+                tab.addEventListener('click', () => switchMode(tab.dataset.mode));
+            });
+            
+            // Agent selection (mode dialogue)
+            document.querySelectorAll('.agent-card').forEach(card => {
+                card.addEventListener('click', () => selectAgent(card.dataset.agent));
+            });
+            
+            // Agent checkboxes (mode documents)
+            document.querySelectorAll('input[name="agents"]').forEach(checkbox => {
+                checkbox.addEventListener('change', updateSelectedAgents);
+            });
+        }
+
+        // === GESTION MODES V5 ===
+        function switchMode(mode) {
+            currentMode = mode;
+            
+            // Update tabs
+            document.querySelectorAll('.mode-tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.mode === mode);
+            });
+            
+            // Update content
+            document.querySelectorAll('.mode-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(`mode${mode.charAt(0).toUpperCase() + mode.slice(1)}`).classList.add('active');
+            
+            // Update chat layout
+            if (mode === 'triangle') {
+                document.getElementById('normalChat').style.display = 'none';
+                document.getElementById('tripleChat').classList.add('active');
+            } else {
+                document.getElementById('normalChat').style.display = 'flex';
+                document.getElementById('tripleChat').classList.remove('active');
+            }
+            
+            updateModeIndicator();
+            console.log(`🎯 Mode changé: ${mode}`);
+        }
+
+        function updateModeIndicator() {
+            const icons = {
+                dialogue: '💬',
+                triangle: '🔀',
+                documents: '📁'
+            };
+            
+            const names = {
+                dialogue: 'Mode Dialogue',
+                triangle: 'Mode Triangle',
+                documents: 'Mode Documents'
+            };
+            
+            document.getElementById('currentModeIcon').textContent = icons[currentMode];
+            document.getElementById('currentModeName').textContent = names[currentMode];
+            
+            let config = '';
+            if (currentMode === 'dialogue') {
+                config = `Agent: ${selectedAgent.charAt(0).toUpperCase() + selectedAgent.slice(1)} • RAG: ${ragEnabled ? 'Activé' : 'Désactivé'}`;
+            } else if (currentMode === 'triangle') {
+                config = `Débat 3 agents • RAG: ${ragEnabled ? 'Activé' : 'Désactivé'}`;
+            } else if (currentMode === 'documents') {
+                config = `Agents: ${selectedAgents.length} • Docs: ${selectedDocuments.length} • RAG: ${ragEnabled ? 'Activé' : 'Désactivé'}`;
+            }
+            
+            document.getElementById('currentModeConfig').textContent = config;
+        }
+
+        function selectAgent(agentName) {
+            selectedAgent = agentName;
+            
+            // Update UI
+            document.querySelectorAll('.agent-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            document.querySelector(`[data-agent="${agentName}"]`).classList.add('selected');
+            
+            updateModeIndicator();
+            console.log(`🤖 Agent sélectionné: ${agentName}`);
+        }
+
+        function updateSelectedAgents() {
+            selectedAgents = Array.from(document.querySelectorAll('input[name="agents"]:checked'))
+                .map(checkbox => checkbox.value);
+            
+            // Update UI checkboxes
+            document.querySelectorAll('.agent-checkbox').forEach(checkbox => {
+                const input = checkbox.querySelector('input');
+                checkbox.classList.toggle('selected', input.checked);
+            });
+            
+            updateModeIndicator();
+            console.log(`🤖 Agents sélectionnés:`, selectedAgents);
+        }
+
+        // === WEBSOCKET - COMPATIBLE V4 ===
+        function connectWebSocket() {
+            const wsUrl = `ws://localhost:8000/ws/${currentSessionId}`;
+            console.log(`🔌 Connexion WebSocket: ${wsUrl}`);
+            
+            updateConnectionStatus('connecting');
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                isConnected = true;
+                updateConnectionStatus('connected');
+                console.log('✅ WebSocket connecté');
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                } catch (e) {
+                    console.error(`❌ Erreur parsing JSON: ${e.message}`);
+                }
+            };
+            
+            ws.onclose = function() {
+                isConnected = false;
+                updateConnectionStatus('disconnected');
+                console.log('🔌 WebSocket fermé');
+                
+                setTimeout(() => connectWebSocket(), 3000);
+            };
+            
+            ws.onerror = function(error) {
+                console.error(`❌ Erreur WebSocket: ${error}`);
+            };
+        }
+
+        function handleWebSocketMessage(data) {
+            console.log(`📨 Message reçu:`, data);
+            
+            if (data.type === 'agent_response') {
+                if (data.response) {
+                    if (currentMode === 'triangle') {
+                        displayTripleAgentResponse(data.agent, data.response, data.metadata || {});
+                    } else {
+                        displayAgentResponse(data.agent, data.response, data.metadata || {});
+                    }
+                    
+                    // Update costs
+                    if (data.metadata && data.metadata.cost_estimate) {
+                        sessionCosts[data.agent] += data.metadata.cost_estimate;
+                        sessionCosts.total += data.metadata.cost_estimate;
+                        updateCostDisplay();
+                    }
+                } else {
+                    console.error(`❌ Réponse vide pour agent ${data.agent}`);
+                }
+                
+                hideTypingIndicator();
+                
+            } else if (data.type === 'triple_response') {
+                console.log(`🔺 Réponse Triple:`, data.responses);
+                
+                if (data.responses) {
+                    Object.entries(data.responses).forEach(([agent, responseData]) => {
+                        if (responseData && responseData.response) {
+                            displayTripleAgentResponse(agent, responseData.response, responseData.metadata || {});
+                        }
+                    });
+                }
+                
+                hideTypingIndicator();
+                
+            } else if (data.type === 'error') {
+                console.error(`❌ Erreur serveur: ${data.message}`);
+                displayError(data.message);
+                hideTypingIndicator();
+                
+            } else if (data.type === 'triple_start') {
+                console.log('🔺 Début mode Triple');
+                showTypingIndicator('Mode Triple');
+                
+            } else if (data.type === 'triple_end') {
+                console.log(`🔺 Fin mode Triple - Coût: ${data.total_cost || 0}`);
+                if (data.total_cost) {
+                    sessionCosts.triple += data.total_cost;
+                    sessionCosts.total += data.total_cost;
+                    updateCostDisplay();
+                }
+                hideTypingIndicator();
+            }
+        }
+
+        function updateConnectionStatus(status) {
+            const dot = document.getElementById('connectionDot');
+            const text = document.getElementById('connectionText');
+            
+            dot.className = 'status-dot';
+            
+            switch(status) {
+                case 'connected':
+                    dot.classList.add('connected');
+                    text.textContent = 'Connecté';
+                    break;
+                case 'connecting':
+                    dot.classList.add('connecting');
+                    text.textContent = 'Connexion...';
+                    break;
+                default:
+                    text.textContent = 'Déconnecté';
+                    break;
+            }
+        }
+
+        function updateCostDisplay() {
+            document.getElementById('costAnima').textContent = `$${sessionCosts.anima.toFixed(4)}`;
+            document.getElementById('costNeo').textContent = `$${sessionCosts.neo.toFixed(4)}`;
+            document.getElementById('costNexus').textContent = `$${sessionCosts.nexus.toFixed(4)}`;
+            document.getElementById('costTriple').textContent = `$${sessionCosts.triple.toFixed(4)}`;
+            document.getElementById('costTotal').textContent = `$${sessionCosts.total.toFixed(4)}`;
+        }
+
+        // === MESSAGES ===
+        function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            
+            if (!message || !isConnected) {
+                console.log('❌ Message vide ou pas connecté');
+                return;
+            }
+            
+            // Afficher message utilisateur
+            displayUserMessage(message);
+            
+            // 🆕 Stockage pour export
+            addToConversationHistory('user', message, null, { mode: currentMode });
+            
+            // Vider input
+            input.value = '';
+            autoResizeTextarea.call(input);
+            
+            let payload;
+            
+            if (currentMode === 'triangle') {
+                showTypingIndicator('Mode Triple');
+                payload = {
+                    type: 'triple',
+                    message: message,
+                    rag_enabled: ragEnabled,
+                    chunks_limit: chunksLimit
+                };
+            } else if (currentMode === 'documents') {
+                showTypingIndicator(`${selectedAgents.length} agents`);
+                payload = {
+                    type: 'documents',
+                    message: message,
+                    agents: selectedAgents,
+                    documents: selectedDocuments,
+                    rag_enabled: ragEnabled,
+                    chunks_limit: chunksLimit
+                };
+            } else {
+                showTypingIndicator(selectedAgent);
+                payload = {
+                    type: 'chat',
+                    message: message,
+                    agent: selectedAgent,
+                    rag_enabled: ragEnabled,
+                    chunks_limit: chunksLimit
+                };
+            }
+            
+            console.log(`📡 Envoi:`, payload);
+            ws.send(JSON.stringify(payload));
+        }
+
+        // 🔥 FIX MODE TRIANGLE - FONCTION CORRIGÉE
+        function startTripleMode() {
+            const input = document.getElementById('triangleMessageInput');
+            const message = input.value.trim();
+            
+            if (!message) {
+                input.placeholder = "Entrez un sujet pour le débat triangulaire...";
+                input.focus();
+                return;
+            }
+            
+            sendTriangleMessage();
+        }
+
+        function sendTriangleMessage() {
+            const input = document.getElementById('triangleMessageInput');
+            const message = input.value.trim();
+            
+            if (!message || !isConnected) {
+                console.log('❌ Message vide ou pas connecté');
+                return;
+            }
+            
+            // Afficher message utilisateur dans les 3 colonnes
+            displayUserMessage(message);
+            
+            // 🆕 Stockage pour export
+            addToConversationHistory('user', message, null, { mode: 'triangle' });
+            
+            // Vider input
+            input.value = '';
+            autoResizeTriangleTextarea.call(input);
+            
+            // 🔥 PAYLOAD CORRECT POUR MODE TRIANGLE
+            const payload = {
+                type: 'triple',
+                message: message,
+                rag_enabled: ragEnabled,
+                chunks_limit: chunksLimit
+            };
+            
+            console.log(`🔺 Lancement Mode Triangle:`, payload);
+            showTypingIndicator('Mode Triple');
+            
+            // Envoi WebSocket
+            ws.send(JSON.stringify(payload));
+        }
+
+        function handleTriangleInputKeydown(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendTriangleMessage();
+            }
+        }
+
+        function autoResizeTriangleTextarea() {
+            this.style.height = '24px';
+            this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+        }
+
+        function displayUserMessage(message) {
+            if (currentMode === 'triangle') {
+                // Afficher message dans les 3 colonnes
+                ['anima', 'neo', 'nexus'].forEach(agent => {
+                    const container = document.getElementById(`${agent}Messages`);
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = 'triple-message';
+                    messageDiv.style.background = 'rgba(102, 126, 234, 0.2)';
+                    messageDiv.innerHTML = `<strong>👤 FG:</strong><br>${escapeHtml(message)}`;
+                    container.appendChild(messageDiv);
+                    container.scrollTop = container.scrollHeight;
+                });
+            } else {
+                const messagesContainer = document.getElementById('chatMessages');
+                
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message user fade-in';
+                
+                messageDiv.innerHTML = `
+                    <div class="message-header">
+                        <span>👤 FG</span>
+                        <span>${new Date().toLocaleTimeString()}</span>
+                    </div>
+                    <div class="message-bubble">
+                        <div class="message-content">${escapeHtml(message)}</div>
+                    </div>
+                `;
+                
+                messagesContainer.appendChild(messageDiv);
+                scrollToBottom();
+            }
+        }
+
+        function displayAgentResponse(agent, response, metadata) {
+            const messagesContainer = document.getElementById('chatMessages');
+            
+            const agentNames = {
+                'anima': '🎭 Anima',
+                'neo': '⚡ Neo', 
+                'nexus': '🧠 Nexus'
+            };
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message assistant fade-in';
+            
+            let metadataHtml = '';
+            if (metadata) {
+                const items = [];
+                if (metadata.model) items.push(`<span class="metadata-item">${metadata.model}</span>`);
+                if (metadata.processing_time) items.push(`<span class="metadata-item">${metadata.processing_time.toFixed(2)}s</span>`);
+                if (metadata.rag_chunks !== undefined) items.push(`<span class="metadata-item">RAG: ${metadata.rag_chunks}</span>`);
+                if (metadata.cost_estimate) items.push(`<span class="metadata-item">$${metadata.cost_estimate.toFixed(4)}</span>`);
+                
+                if (items.length > 0) {
+                    metadataHtml = `<div class="message-metadata">${items.join('')}</div>`;
+                }
+            }
+            
+            messageDiv.innerHTML = `
+                <div class="message-header">
+                    <span>${agentNames[agent] || agent}</span>
+                    <span>${new Date().toLocaleTimeString()}</span>
+                </div>
+                <div class="message-bubble">
+                    <div class="message-content">${escapeHtml(response)}</div>
+                    ${metadataHtml}
+                </div>
+            `;
+            
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+            
+            // 🆕 Stockage pour export
+            addToConversationHistory('agent', response, agent, metadata);
+        }
+
+        function displayTripleAgentResponse(agent, response, metadata) {
+            const container = document.getElementById(`${agent}Messages`);
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'triple-message';
+            
+            let costInfo = '';
+            if (metadata && metadata.cost_estimate) {
+                costInfo = ` ($${metadata.cost_estimate.toFixed(4)})`;
+            }
+            
+            const agentIcons = {
+                anima: '🎭',
+                neo: '⚡',
+                nexus: '🧠'
+            };
+            
+            messageDiv.innerHTML = `
+                <strong>${agentIcons[agent]} ${agent.charAt(0).toUpperCase() + agent.slice(1)}${costInfo}:</strong><br>
+                ${escapeHtml(response)}
+            `;
+            
+            container.appendChild(messageDiv);
+            container.scrollTop = container.scrollHeight;
+            
+            // 🆕 Stockage pour export
+            addToConversationHistory('agent', response, agent, metadata, 'triangle');
+        }
+
+        function displayError(message) {
+            const messagesContainer = document.getElementById('chatMessages');
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message assistant fade-in';
+            
+            messageDiv.innerHTML = `
+                <div class="message-header">
+                    <span>⚠️ Système</span>
+                    <span>${new Date().toLocaleTimeString()}</span>
+                </div>
+                <div class="message-bubble" style="background: rgba(255, 107, 107, 0.2); border-color: #ff6b6b;">
+                    <div class="message-content">${escapeHtml(message)}</div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        // === INDICATEURS ===
+        function showTypingIndicator(agent) {
+            hideTypingIndicator();
+            
+            if (currentMode === 'triangle') {
+                // Pas d'indicateur de frappe en mode triangle, les colonnes suffisent
+                return;
+            }
+            
+            const messagesContainer = document.getElementById('chatMessages');
+            
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'typing-indicator';
+            typingDiv.id = 'typingIndicator';
+            
+            typingDiv.innerHTML = `
+                <span>${agent} est en train d'écrire</span>
+                <div class="typing-dots">
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(typingDiv);
+            scrollToBottom();
+        }
+
+        function hideTypingIndicator() {
+            const indicator = document.getElementById('typingIndicator');
+            if (indicator) {
+                indicator.remove();
+            }
+        }
+
+        // === UTILITAIRES ===
+        function scrollToBottom() {
+            const container = document.getElementById('chatMessages');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function autoResizeTextarea() {
+            this.style.height = '24px';
+            this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+        }
+
+        function handleInputKeydown(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                if (currentMode === 'triangle') {
+                    startTripleMode();
+                } else {
+                    sendMessage();
+                }
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // === RAG CONTROLS ===
+        function toggleRAG() {
+            ragEnabled = !ragEnabled;
+            const toggle = document.getElementById('ragSwitch');
+            
+            if (ragEnabled) {
+                toggle.classList.add('active');
+            } else {
+                toggle.classList.remove('active');
+            }
+            
+            updateModeIndicator();
+            console.log(`🧠 RAG ${ragEnabled ? 'activé' : 'désactivé'}`);
+        }
+
+        function updateChunks(value) {
+            chunksLimit = parseInt(value);
+            document.getElementById('chunksValue').textContent = value;
+            updateModeIndicator();
+            console.log(`📊 Chunks limit: ${value}`);
+        }
+
+        // === DOCUMENTS ===
+        async function loadDocuments() {
+            console.log('📁 Chargement documents...');
+            
+            try {
+                const response = await fetch('/api/documents');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log(`📄 ${data.documents.length} documents reçus`);
+                
+                const container = document.getElementById('documentsList');
+                const countElement = document.getElementById('docCount');
+                
+                container.innerHTML = '';
+                countElement.textContent = data.documents.length;
+                
+                if (data.documents.length === 0) {
+                    container.innerHTML = '<div style="opacity: 0.6; font-size: 11px; text-align: center; padding: 10px;">Aucun document uploadé</div>';
+                    return;
+                }
+                
+                data.documents.forEach(doc => {
+                    const item = document.createElement('label');
+                    item.className = 'document-checkbox';
+                    
+                    item.innerHTML = `
+                        <input type="checkbox" name="documents" value="${doc.id}">
+                        <span class="document-name" title="${doc.filename}">${doc.filename}</span>
+                        <span class="document-chunks">${doc.chunks_count || 0}</span>
+                    `;
+                    
+                    // Event listener pour sélection documents
+                    const checkbox = item.querySelector('input');
+                    checkbox.addEventListener('change', updateSelectedDocuments);
+                    
+                    container.appendChild(item);
+                });
+                
+                console.log(`✅ Documents affichés: ${data.documents.length}`);
+                
+            } catch (error) {
+                console.error(`❌ Erreur chargement documents: ${error.message}`);
+                
+                const container = document.getElementById('documentsList');
+                container.innerHTML = '<div style="color: #ff6b6b; font-size: 11px; text-align: center; padding: 10px;">Erreur chargement</div>';
+            }
+        }
+
+        function updateSelectedDocuments() {
+            selectedDocuments = Array.from(document.querySelectorAll('input[name="documents"]:checked'))
+                .map(checkbox => checkbox.value);
+            
+            updateModeIndicator();
+            console.log(`📄 Documents sélectionnés:`, selectedDocuments);
+        }
+
+        async function uploadFile(input) {
+            const file = input.files[0];
+            if (!file) return;
+            
+            console.log(`📤 Upload: ${file.name} (${Math.round(file.size/1024)}KB)`);
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log(`✅ Upload réussi: ${file.name}`);
+                    
+                    loadDocuments(); // Recharger la liste
+                    
+                    // Message système
+                    displaySystemMessage(`✅ Fichier "${file.name}" uploadé et indexé avec succès`);
+                } else {
+                    const error = await response.text();
+                    console.error(`❌ Erreur upload: ${error}`);
+                    displaySystemMessage(`❌ Erreur upload: ${error}`);
+                }
+                
+            } catch (error) {
+                console.error(`❌ Exception upload: ${error.message}`);
+                displaySystemMessage(`❌ Erreur upload: ${error.message}`);
+            }
+            
+            input.value = '';
+        }
+
+        function displaySystemMessage(message) {
+            const messagesContainer = document.getElementById('chatMessages');
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message assistant fade-in';
+            
+            messageDiv.innerHTML = `
+                <div class="message-header">
+                    <span>📋 Système</span>
+                    <span>${new Date().toLocaleTimeString()}</span>
+                </div>
+                <div class="message-bubble" style="background: rgba(78, 205, 196, 0.2); border-color: #4ecdc4;">
+                    <div class="message-content">${escapeHtml(message)}</div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        // === 🆕 FONCTIONS POUR EXPORT ===
+        function addToConversationHistory(sender, message, agent = null, metadata = {}, mode = null) {
+            conversationHistory.push({
+                timestamp: new Date().toISOString(),
+                sender: sender,
+                agent: agent,
+                message: message,
+                metadata: metadata,
+                mode: mode || currentMode,
+                session_id: currentSessionId
+            });
+        }
+
+        function exportChat() {
+            if (conversationHistory.length === 0) {
+                alert('Aucune conversation à exporter !');
+                return;
+            }
+            
+            // Préparation données export
+            const exportData = {
+                session_info: {
+                    session_id: currentSessionId,
+                    export_date: new Date().toISOString(),
+                    total_messages: conversationHistory.length,
+                    session_costs: sessionCosts,
+                    modes_used: [...new Set(conversationHistory.map(m => m.mode))],
+                    agents_used: [...new Set(conversationHistory.filter(m => m.agent).map(m => m.agent))]
+                },
+                conversation: conversationHistory,
+                statistics: {
+                    user_messages: conversationHistory.filter(m => m.sender === 'user').length,
+                    agent_responses: conversationHistory.filter(m => m.sender === 'agent').length,
+                    dialogue_messages: conversationHistory.filter(m => m.mode === 'dialogue').length,
+                    triangle_messages: conversationHistory.filter(m => m.mode === 'triangle').length,
+                    documents_messages: conversationHistory.filter(m => m.mode === 'documents').length,
+                    total_cost: sessionCosts.total,
+                    average_cost_per_response: sessionCosts.total / Math.max(1, conversationHistory.filter(m => m.sender === 'agent').length)
+                }
+            };
+            
+            // Création fichier JSON
+            const jsonString = JSON.stringify(exportData, null, 2);
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            
+            // Nom fichier avec timestamp
+            const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+            const filename = `emergence_v5_conversation_${timestamp}.json`;
+            
+            // Téléchargement
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            console.log(`💾 Export réussi: ${filename}`);
+            displaySystemMessage(`💾 Conversation exportée: ${filename}`);
+        }
+
+        // === ACTIONS ===
+        function clearChat() {
+            if (confirm('Effacer toute la conversation ?')) {
+                // Reset coûts
+                sessionCosts = {
+                    anima: 0.0,
+                    neo: 0.0,
+                    nexus: 0.0,
+                    triple: 0.0,
+                    total: 0.0
+                };
+                
+                // Reset historique conversation
+                conversationHistory = [];
+                
+                updateCostDisplay();
+                
+                // Clear chat normal
+                document.getElementById('chatMessages').innerHTML = `
+                    <div style="text-align: center; padding: 2rem; opacity: 0.7;">
+                        <h2>🌟 Conversation effacée</h2>
+                        <p>Nouvelle session prête !</p>
+                    </div>
+                `;
+                
+                // Clear triple chat
+                ['anima', 'neo', 'nexus'].forEach(agent => {
+                    document.getElementById(`${agent}Messages`).innerHTML = '';
+                });
+                
+                // Clear triple chat input
+                const triangleInput = document.getElementById('triangleMessageInput');
+                if (triangleInput) {
+                    triangleInput.value = '';
+                }
+                
+                console.log('🗑️ Conversation effacée');
+                displaySystemMessage('🗑️ Conversation effacée - Nouvelle session prête');
+            }
+        }
+
+        // === DRAG & DROP ===
+        const uploadZone = document.querySelector('.upload-zone');
+        
+        uploadZone.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            this.classList.add('dragover');
+        });
+        
+        uploadZone.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            this.classList.remove('dragover');
+        });
+        
+        uploadZone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            this.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                const input = document.getElementById('fileInput');
+                input.files = files;
+                uploadFile(input);
+            }
+        });
+
+        console.log('🎉 ÉMERGENCE V5 Interface chargée - Mode Triangle CORRIGÉ + Export fonctionnel');
+    </script>
+</body>
+</html>

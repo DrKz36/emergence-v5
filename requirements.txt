@@ -1,0 +1,63 @@
+# ÉMERGENCE V4 - Dépendances Multi-IA CORRIGÉES
+# FastAPI Backend + Interface Glassmorphism + APIs 3 IA
+
+# ========================================
+# BACKEND FASTAPI (REQUIS)
+# ========================================
+fastapi>=0.100.0           # API moderne + WebSocket
+uvicorn[standard]>=0.20.0   # Serveur ASGI production
+python-multipart>=0.0.6     # Upload fichiers
+pydantic>=2.0.0             # Validation données
+
+# ========================================
+# MODULES CORE V4 
+# ========================================
+chromadb>=0.4.0             # Vector store minimal
+sentence-transformers>=2.7.0 # Embeddings locaux
+# sqlite3 est inclus avec Python - pas besoin d'installer
+
+# ========================================
+# API CLIENTS MULTI-IA
+# ========================================
+openai>=1.14.0              # Anima (GPT-4.1)
+google-generativeai>=0.5.0  # Neo (Gemini 2.5 Pro) 
+anthropic>=0.21.0           # Nexus (Claude Sonnet 4)
+
+# ========================================
+# EXTRACTION DOCUMENTS MULTI-FORMATS
+# ========================================
+PyPDF2>=3.0.0               # PDF support
+python-docx>=0.8.11         # DOCX support
+python-magic>=0.4.27        # MIME type detection (optionnel)
+
+# ========================================
+# UTILITAIRES & PERFORMANCE
+# ========================================
+python-dotenv>=1.0.0        # Variables environnement
+numpy>=1.24.0               # Calculs numériques
+cachetools>=5.0.0           # Cache intelligent
+# hashlib, pathlib, tempfile, mimetypes inclus avec Python
+
+# ========================================
+# LOGGING & MONITORING
+# ========================================
+# logging, datetime, uuid, json, threading, asyncio inclus avec Python
+
+# ========================================
+# DÉVELOPPEMENT & DEBUG (optionnel)
+# ========================================
+# pytest>=7.0.0            # Tests unitaires
+# black>=23.0.0             # Formatage code
+# flake8>=5.0.0             # Linting
+
+# ========================================
+# INTERFACE ALTERNATIVE (au cas où)
+# ========================================
+# streamlit>=1.28.0         # Interface Streamlit (backup)
+
+# ========================================
+# PRODUCTION (décommenter si déploiement)
+# ========================================
+# gunicorn>=20.0.0          # Process manager
+# redis>=4.0.0              # Cache distribué
+# prometheus-client>=0.15.0 # Métriques
