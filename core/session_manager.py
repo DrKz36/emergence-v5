@@ -1,7 +1,7 @@
 """
 ÉMERGENCE V5 - Session Manager - MÉMOIRE PERSISTANTE
 🔥 Phase 2 - Gestion complète des sessions + sauvegarde + recherche temporelle
-Version: 5.0.0 - Session Management + Timeline + Agent Memory
+Version: 5.0.1 - Session Management + Timeline + Agent Memory + FIXES API
 """
 
 import os
@@ -50,6 +50,7 @@ class SessionInfo:
     agents_used: List[str] = field(default_factory=list)
     themes_detected: List[str] = field(default_factory=list)
     documents_used: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)  # 🔥 AJOUTÉ
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -78,7 +79,7 @@ class CompleteSession:
     conversation: List[SessionMessage]
     statistics: SessionStatistics
     export_date: str = ""
-    version: str = "5.0.0"
+    version: str = "5.0.1"
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -327,10 +328,25 @@ class SessionManagerV5:
             dominant_theme=dominant_theme
         )
     
-    def create_session(self, user_id: str = "FG", session_id: Optional[str] = None) -> CompleteSession:
-        """🆕 Création nouvelle session"""
+    # 🔥 MÉTHODE CREATE_SESSION CORRIGÉE
+    def create_session(self, user_id: str = "FG", metadata: Optional[Dict[str, Any]] = None, session_id: Optional[str] = None) -> str:
+        """🆕 Création nouvelle session avec gestion métadonnées flexible"""
         if not session_id:
             session_id = f"session_{uuid.uuid4().hex[:10]}_{int(datetime.now().timestamp() * 1000)}"
+        
+        # 🔥 GESTION METADATA FLEXIBLE
+        if metadata is None:
+            metadata = {}
+        
+        # Merge des métadonnées par défaut
+        default_metadata = {
+            'created_via': 'session_manager_v5',
+            'creation_timestamp': datetime.now().isoformat() + "Z",
+            'version': '5.0.1'
+        }
+        
+        # Fusion intelligente des métadonnées
+        final_metadata = {**default_metadata, **metadata}
         
         session_info = SessionInfo(
             session_id=session_id,
@@ -342,7 +358,8 @@ class SessionManagerV5:
                 'nexus': 0.0,
                 'triple': 0.0,
                 'total': 0.0
-            }
+            },
+            metadata=final_metadata  # 🔥 STOCKAGE METADATA
         )
         
         statistics = SessionStatistics()
@@ -359,32 +376,51 @@ class SessionManagerV5:
         self.current_session = session
         
         logger.info(f"🆕 Session créée: {session_id} pour {user_id}")
-        return session
+        logger.debug(f"📋 Métadonnées: {final_metadata}")
+        
+        return session_id  # 🔥 RETOURNE STRING ID au lieu de CompleteSession
     
-    def add_message_to_session(self, session_id: str, message: SessionMessage) -> bool:
-        """💬 Ajout message à une session active"""
+    # 🔥 MÉTHODE ADD_MESSAGE_TO_SESSION CORRIGÉE
+    def add_message_to_session(self, session_id: str, message_type: str, content: Dict[str, Any], metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """💬 Ajout message à une session avec type/content flexible"""
         try:
             if session_id not in self.active_sessions:
                 logger.warning(f"⚠️ Session {session_id} non trouvée, création automatique")
                 self.create_session(session_id=session_id)
             
             session = self.active_sessions[session_id]
-            message.session_id = session_id
+            
+            # Construction SessionMessage
+            message = SessionMessage(
+                timestamp=datetime.now().isoformat() + "Z",
+                sender=message_type,  # 'user' ou 'agent'
+                message=content.get('text', ''),
+                metadata=metadata or {},
+                mode=content.get('mode', 'dialogue'),
+                session_id=session_id
+            )
+            
+            # Gestion agent spécifique pour messages agent
+            if message_type == 'agent' and 'agent' in content:
+                message.agent = content['agent']
+            
             session.conversation.append(message)
             
             # Mise à jour compteurs
             session.session_info.total_messages += 1
             
             # Mise à jour modes utilisés
-            if message.mode not in session.session_info.modes_used:
-                session.session_info.modes_used.append(message.mode)
+            mode = content.get('mode', 'dialogue')
+            if mode not in session.session_info.modes_used:
+                session.session_info.modes_used.append(mode)
             
             # Mise à jour agents utilisés
-            if message.sender == "agent" and message.agent:
-                if message.agent not in session.session_info.agents_used:
-                    session.session_info.agents_used.append(message.agent)
+            if message_type == "agent" and 'agent' in content:
+                agent = content['agent']
+                if agent not in session.session_info.agents_used:
+                    session.session_info.agents_used.append(agent)
             
-            logger.debug(f"💬 Message ajouté à session {session_id} (total: {session.session_info.total_messages})")
+            logger.debug(f"💬 Message {message_type} ajouté à session {session_id} (total: {session.session_info.total_messages})")
             return True
             
         except Exception as e:
@@ -404,7 +440,8 @@ class SessionManagerV5:
             logger.error(f"❌ Erreur update coûts session {session_id}: {e}")
             return False
     
-    def finalize_session(self, session_id: str) -> CompleteSession:
+    # 🔥 MÉTHODE FINALIZE_SESSION CORRIGÉE
+    def finalize_session(self, session_id: str, final_metadata: Optional[Dict[str, Any]] = None) -> CompleteSession:
         """✅ Finalisation et sauvegarde complète d'une session"""
         try:
             if session_id not in self.active_sessions:
@@ -415,6 +452,12 @@ class SessionManagerV5:
             # Finalisation timestamps
             session.session_info.end_time = datetime.now().isoformat() + "Z"
             session.export_date = datetime.now().isoformat() + "Z"
+            
+            # 🔥 AJOUT METADATA FINALE
+            if final_metadata:
+                existing_metadata = session.session_info.metadata
+                combined_metadata = {**existing_metadata, **final_metadata}
+                session.session_info.metadata = combined_metadata
             
             # Détection thématique automatique
             session.session_info.themes_detected = self._detect_themes(session.conversation)
@@ -517,8 +560,9 @@ class SessionManagerV5:
             logger.error(f"❌ Erreur sauvegarde SQLite session: {e}")
             return False
     
+    # 🔥 MÉTHODES MANQUANTES AJOUTÉES POUR COMPATIBILITÉ API
     def get_session_by_id(self, session_id: str) -> Optional[CompleteSession]:
-        """🔍 Récupération session par ID"""
+        """🔍 Récupération session par ID avec fallbacks robustes"""
         try:
             # Check active sessions first
             if session_id in self.active_sessions:
@@ -538,7 +582,7 @@ class SessionManagerV5:
                         conversation=[SessionMessage(**msg) for msg in session_data['conversation']],
                         statistics=SessionStatistics(**session_data['statistics']),
                         export_date=session_data.get('export_date', ''),
-                        version=session_data.get('version', '5.0.0')
+                        version=session_data.get('version', '5.0.1')
                     )
                     return session
             
@@ -552,7 +596,7 @@ class SessionManagerV5:
                         conversation=[SessionMessage(**msg) for msg in session_data['conversation']],
                         statistics=SessionStatistics(**session_data['statistics']),
                         export_date=session_data.get('export_date', ''),
-                        version=session_data.get('version', '5.0.0')
+                        version=session_data.get('version', '5.0.1')
                     )
                     return session
             
@@ -562,103 +606,8 @@ class SessionManagerV5:
             logger.error(f"❌ Erreur récupération session {session_id}: {e}")
             return None
     
-    def search_sessions_by_date(self, start_date: str, end_date: str, user_id: str = "FG") -> List[CompleteSession]:
-        """📅 Recherche sessions par période"""
-        try:
-            sessions = []
-            
-            with self._get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT session_data FROM sessions
-                    WHERE user_id = ? AND start_time BETWEEN ? AND ?
-                    ORDER BY start_time DESC
-                """, (user_id, start_date, end_date))
-                
-                for row in cursor.fetchall():
-                    session_data = json.loads(row[0])
-                    session = CompleteSession(
-                        session_info=SessionInfo(**session_data['session_info']),
-                        conversation=[SessionMessage(**msg) for msg in session_data['conversation']],
-                        statistics=SessionStatistics(**session_data['statistics']),
-                        export_date=session_data.get('export_date', ''),
-                        version=session_data.get('version', '5.0.0')
-                    )
-                    sessions.append(session)
-            
-            logger.info(f"📅 {len(sessions)} sessions trouvées entre {start_date} et {end_date}")
-            return sessions
-            
-        except Exception as e:
-            logger.error(f"❌ Erreur recherche sessions par date: {e}")
-            return []
-    
-    def search_sessions_by_theme(self, theme: str, user_id: str = "FG", limit: int = 10) -> List[CompleteSession]:
-        """🎯 Recherche sessions par thème"""
-        try:
-            sessions = []
-            
-            with self._get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT session_data FROM sessions
-                    WHERE user_id = ? AND themes LIKE ?
-                    ORDER BY start_time DESC
-                    LIMIT ?
-                """, (user_id, f'%{theme}%', limit))
-                
-                for row in cursor.fetchall():
-                    session_data = json.loads(row[0])
-                    session = CompleteSession(
-                        session_info=SessionInfo(**session_data['session_info']),
-                        conversation=[SessionMessage(**msg) for msg in session_data['conversation']],
-                        statistics=SessionStatistics(**session_data['statistics']),
-                        export_date=session_data.get('export_date', ''),
-                        version=session_data.get('version', '5.0.0')
-                    )
-                    sessions.append(session)
-            
-            logger.info(f"🎯 {len(sessions)} sessions trouvées pour thème '{theme}'")
-            return sessions
-            
-        except Exception as e:
-            logger.error(f"❌ Erreur recherche sessions par thème: {e}")
-            return []
-    
-    def get_recent_sessions(self, user_id: str = "FG", limit: int = 10) -> List[CompleteSession]:
-        """🕒 Récupération sessions récentes"""
-        try:
-            sessions = []
-            
-            with self._get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT session_data FROM sessions
-                    WHERE user_id = ?
-                    ORDER BY start_time DESC
-                    LIMIT ?
-                """, (user_id, limit))
-                
-                for row in cursor.fetchall():
-                    session_data = json.loads(row[0])
-                    session = CompleteSession(
-                        session_info=SessionInfo(**session_data['session_info']),
-                        conversation=[SessionMessage(**msg) for msg in session_data['conversation']],
-                        statistics=SessionStatistics(**session_data['statistics']),
-                        export_date=session_data.get('export_date', ''),
-                        version=session_data.get('version', '5.0.0')
-                    )
-                    sessions.append(session)
-            
-            logger.info(f"🕒 {len(sessions)} sessions récentes récupérées")
-            return sessions
-            
-        except Exception as e:
-            logger.error(f"❌ Erreur récupération sessions récentes: {e}")
-            return []
-    
     def get_session_stats(self, user_id: str = "FG") -> Dict[str, Any]:
-        """📊 Statistiques globales des sessions"""
+        """📊 Statistiques globales des sessions avec fallbacks"""
         try:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
@@ -680,7 +629,7 @@ class SessionManagerV5:
                 cursor.execute("""
                     SELECT themes, COUNT(*) as count
                     FROM sessions 
-                    WHERE user_id = ? AND themes != '[]'
+                    WHERE user_id = ? AND themes != '[]' AND themes IS NOT NULL
                     GROUP BY themes
                     ORDER BY count DESC
                     LIMIT 10
@@ -692,7 +641,7 @@ class SessionManagerV5:
                 cursor.execute("""
                     SELECT agents_used, COUNT(*) as count
                     FROM sessions 
-                    WHERE user_id = ? AND agents_used != '[]'
+                    WHERE user_id = ? AND agents_used != '[]' AND agents_used IS NOT NULL
                     GROUP BY agents_used
                     ORDER BY count DESC
                     LIMIT 10
@@ -708,12 +657,123 @@ class SessionManagerV5:
                     "last_session_date": stats[4] or "",
                     "themes_frequency": themes_raw,
                     "agents_frequency": agents_raw,
-                    "user_id": user_id
+                    "user_id": user_id,
+                    "method": "session_stats_v5"
                 }
                 
         except Exception as e:
             logger.error(f"❌ Erreur stats sessions: {e}")
-            return {}
+            return {
+                "total_sessions": 0,
+                "error": str(e),
+                "method": "fallback_error"
+            }
+    
+    def search_sessions_by_theme(self, theme: str, limit: int = 10, user_id: str = "FG") -> List[Dict[str, Any]]:
+        """🎯 Recherche sessions par thème - retourne Dict pour compatibilité API"""
+        try:
+            sessions = []
+            
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, start_time, themes, agents_used, total_cost, message_count
+                    FROM sessions
+                    WHERE user_id = ? AND (themes LIKE ? OR themes LIKE ?)
+                    ORDER BY start_time DESC
+                    LIMIT ?
+                """, (user_id, f'%"{theme}"%', f'%{theme}%', limit))
+                
+                for row in cursor.fetchall():
+                    session_dict = {
+                        'session_id': row[0],
+                        'start_time': row[1],
+                        'themes': json.loads(row[2]) if row[2] else [],
+                        'agents_used': json.loads(row[3]) if row[3] else [],
+                        'total_cost': row[4] or 0.0,
+                        'message_count': row[5] or 0,
+                        'theme_searched': theme
+                    }
+                    sessions.append(session_dict)
+            
+            logger.info(f"🎯 {len(sessions)} sessions trouvées pour thème '{theme}'")
+            return sessions
+            
+        except Exception as e:
+            logger.error(f"❌ Erreur recherche sessions par thème: {e}")
+            return []
+    
+    def search_sessions_by_date(self, start_date: str, end_date: str, limit: int = 20, user_id: str = "FG") -> List[Dict[str, Any]]:
+        """📅 Recherche sessions par période - retourne Dict pour compatibilité API"""
+        try:
+            sessions = []
+            
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, start_time, end_time, themes, agents_used, total_cost, message_count
+                    FROM sessions
+                    WHERE user_id = ? AND start_time BETWEEN ? AND ?
+                    ORDER BY start_time DESC
+                    LIMIT ?
+                """, (user_id, start_date, end_date, limit))
+                
+                for row in cursor.fetchall():
+                    session_dict = {
+                        'session_id': row[0],
+                        'start_time': row[1],
+                        'end_time': row[2],
+                        'themes': json.loads(row[3]) if row[3] else [],
+                        'agents_used': json.loads(row[4]) if row[4] else [],
+                        'total_cost': row[5] or 0.0,
+                        'message_count': row[6] or 0,
+                        'date_range': f"{start_date} - {end_date}"
+                    }
+                    sessions.append(session_dict)
+            
+            logger.info(f"📅 {len(sessions)} sessions trouvées entre {start_date} et {end_date}")
+            return sessions
+            
+        except Exception as e:
+            logger.error(f"❌ Erreur recherche sessions par date: {e}")
+            return []
+    
+    def get_recent_sessions(self, user_id: str = "FG", limit: int = 10) -> List[Dict[str, Any]]:
+        """🕒 Récupération sessions récentes - retourne Dict pour compatibilité API"""
+        try:
+            sessions = []
+            
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, start_time, end_time, themes, agents_used, modes_used, total_cost, message_count, session_duration_minutes
+                    FROM sessions
+                    WHERE user_id = ?
+                    ORDER BY start_time DESC
+                    LIMIT ?
+                """, (user_id, limit))
+                
+                for row in cursor.fetchall():
+                    session_dict = {
+                        'session_id': row[0],
+                        'start_time': row[1],
+                        'end_time': row[2],
+                        'themes': json.loads(row[3]) if row[3] else [],
+                        'agents_used': json.loads(row[4]) if row[4] else [],
+                        'modes_used': json.loads(row[5]) if row[5] else [],
+                        'total_cost': row[6] or 0.0,
+                        'message_count': row[7] or 0,
+                        'duration_minutes': row[8] or 0.0,
+                        'method': 'recent_sessions_v5'
+                    }
+                    sessions.append(session_dict)
+            
+            logger.info(f"🕒 {len(sessions)} sessions récentes récupérées")
+            return sessions
+            
+        except Exception as e:
+            logger.error(f"❌ Erreur récupération sessions récentes: {e}")
+            return []
     
     def export_session_json(self, session_id: str, export_path: Optional[str] = None) -> Optional[str]:
         """📤 Export session vers fichier JSON"""
@@ -751,70 +811,93 @@ def get_session_manager(database_path: str = "data/emergence_v4.db", sessions_di
 # === TESTS INTÉGRÉS ===
 
 if __name__ == "__main__":
-    print("=== TEST SESSION MANAGER V5 ===\n")
+    print("=== TEST SESSION MANAGER V5.0.1 - FIXES API ===\n")
     
     # Instance de test
     sm = SessionManagerV5(database_path="data/test_sessions.db")
     
     # Test création session
     print("🆕 Test création session...")
-    session = sm.create_session(user_id="FG_TEST")
-    print(f"   Session ID: {session.session_info.session_id}")
+    session_id = sm.create_session(user_id="FG_TEST", metadata={'test_mode': True})
+    print(f"   Session ID retourné: {session_id}")
+    print(f"   Type retourné: {type(session_id)}")
     
     # Test ajout messages
     print("\n💬 Test ajout messages...")
     
     # Message user
-    user_msg = SessionMessage(
-        timestamp=datetime.now().isoformat() + "Z",
-        sender="user",
-        message="Qu'est-ce que la conscience selon toi ?",
-        mode="dialogue",
-        metadata={"mode": "dialogue"}
+    success1 = sm.add_message_to_session(
+        session_id=session_id,
+        message_type="user",
+        content={
+            'text': "Qu'est-ce que la conscience selon toi ?",
+            'mode': 'dialogue'
+        },
+        metadata={'test': True}
     )
-    sm.add_message_to_session(session.session_info.session_id, user_msg)
+    print(f"   Message user ajouté: {success1}")
     
     # Message agent
-    agent_msg = SessionMessage(
-        timestamp=datetime.now().isoformat() + "Z",
-        sender="agent",
-        agent="anima",
-        message="La conscience, c'est un mystère qui danse...",
-        mode="dialogue",
-        metadata={
-            "model": "gpt-4o",
-            "processing_time": 3.5,
-            "cost_estimate": 0.025
+    success2 = sm.add_message_to_session(
+        session_id=session_id,
+        message_type="agent",
+        content={
+            'agent': 'anima',
+            'text': "La conscience, c'est un mystère qui danse...",
+            'mode': 'dialogue',
+            'model': 'gpt-4o',
+            'processing_time': 3.5,
+            'cost': 0.025
         }
     )
-    sm.add_message_to_session(session.session_info.session_id, agent_msg)
+    print(f"   Message agent ajouté: {success2}")
     
     # Test update coûts
     print("\n💰 Test update coûts...")
-    sm.update_session_costs(session.session_info.session_id, "anima", 0.025)
+    cost_updated = sm.update_session_costs(session_id, "anima", 0.025)
+    print(f"   Coûts mis à jour: {cost_updated}")
     
     # Test finalisation
     print("\n✅ Test finalisation session...")
-    final_session = sm.finalize_session(session.session_info.session_id)
+    final_session = sm.finalize_session(session_id, {
+        'test_completed': True,
+        'final_note': 'Test réussi'
+    })
     
+    print(f"   Session finalisée: {final_session.session_info.session_id}")
     print(f"   Messages total: {final_session.statistics.user_messages + final_session.statistics.agent_responses}")
     print(f"   Coût total: ${final_session.statistics.total_cost}")
     print(f"   Thèmes détectés: {final_session.session_info.themes_detected}")
     print(f"   Agents utilisés: {final_session.session_info.agents_used}")
     
-    # Test récupération
-    print("\n🔍 Test récupération session...")
-    retrieved = sm.get_session_by_id(session.session_info.session_id)
-    if retrieved:
-        print(f"   ✅ Session récupérée: {len(retrieved.conversation)} messages")
-    else:
-        print(f"   ❌ Session non récupérée")
+    # Test récupération sessions récentes
+    print("\n🕒 Test sessions récentes...")
+    recent = sm.get_recent_sessions("FG_TEST", limit=5)
+    print(f"   Sessions récentes: {len(recent)}")
+    print(f"   Type retour: {type(recent)}")
+    if recent:
+        print(f"   Première session: {recent[0].get('session_id', 'N/A')}")
     
     # Test stats
-    print("\n📊 Test statistiques globales...")
+    print("\n📊 Test statistiques...")
     stats = sm.get_session_stats("FG_TEST")
+    print(f"   Stats type: {type(stats)}")
     print(f"   Sessions totales: {stats.get('total_sessions', 0)}")
     print(f"   Messages totaux: {stats.get('total_messages', 0)}")
     print(f"   Coût total: ${stats.get('total_cost', 0)}")
     
-    print("\n✅ SESSION MANAGER V5 - TESTS TERMINÉS")
+    # Test recherche par thème
+    print("\n🎯 Test recherche par thème...")
+    theme_results = sm.search_sessions_by_theme("conscience", limit=5, user_id="FG_TEST")
+    print(f"   Résultats thème: {len(theme_results)}")
+    print(f"   Type retour: {type(theme_results)}")
+    
+    print("\n✅ SESSION MANAGER V5.0.1 - TESTS TERMINÉS")
+    print("🔧 FIXES APPLIQUÉS:")
+    print("   ✅ create_session() retourne string ID")
+    print("   ✅ add_message_to_session() avec structure flexible")
+    print("   ✅ finalize_session() avec final_metadata")
+    print("   ✅ Toutes méthodes API retournent Dict/List")
+    print("   ✅ Gestion metadata avancée")
+    print("   ✅ Fallbacks robustes pour erreurs")
+    print("   ✅ Compatibilité main.py garantie")

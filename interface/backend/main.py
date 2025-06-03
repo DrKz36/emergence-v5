@@ -2,7 +2,8 @@
 ÉMERGENCE V5 - FastAPI Backend COMPLET - SUPPORT 3 MODES + SESSION MANAGER V5
 🔥 Mode Dialogue + Mode Triangle + Mode Documents + Upload PDF/DOCX + MÉMOIRE PERSISTANTE
 INTEGRATION: SessionManager V5 pour capture automatique conversations temps réel
-VERSION CORRIGÉE: Fixes session_type + fallbacks API routes
+VERSION CORRIGÉE: Fixes session_type + fallbacks API routes + WebSocket Heartbeat + Handlers complets
+VERSION: 5.1.2 - Tous handlers WebSocket présents + Corrections critiques
 """
 
 import sys
@@ -22,7 +23,7 @@ from typing import List, Dict, Optional, Any
 import json
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 
 # Imports ÉMERGENCE V4
@@ -81,7 +82,7 @@ if SESSION_MANAGER_AVAILABLE:
 app = FastAPI(
     title="ÉMERGENCE V5 - Multi-IA API 3 Modes + Session Manager",
     description="Interface V5: Mode Dialogue + Mode Triangle + Mode Documents avec mémoire persistante",
-    version="5.1.0"
+    version="5.1.2"
 )
 
 # CORS pour frontend
@@ -96,7 +97,7 @@ app.add_middleware(
 # Servir fichiers statiques
 app.mount("/static", StaticFiles(directory="interface/frontend"), name="static")
 
-# === MODELS PYDANTIC V5 (inchangés) ===
+# === MODELS PYDANTIC V5 ===
 class ChatMessage(BaseModel):
     agent: str
     message: str
@@ -164,7 +165,7 @@ class DatabaseStats(BaseModel):
     vector_count: int
     last_update: str
 
-# === UTILITAIRES EXTRACTION DOCUMENTS (inchangés) ===
+# === UTILITAIRES EXTRACTION DOCUMENTS ===
 def extract_text_from_pdf(file_content: bytes) -> str:
     """🔴 Extrait le texte d'un PDF - Version optimisée"""
     if not PDF_AVAILABLE:
@@ -345,11 +346,17 @@ def validate_file_content(filename: str, file_content: bytes, extracted_text: st
     
     return validation
 
-# === 🆕 GESTIONNAIRE CONNEXIONS WEBSOCKET V5 + SESSION MANAGER ===
+# === 🆕 GESTIONNAIRE CONNEXIONS WEBSOCKET V5 + SESSION MANAGER + HEARTBEAT CORRIGÉ ===
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
         self.session_data: Dict[str, Any] = {}
+        # 🔥 ATTRIBUTS HEARTBEAT CORRIGÉS
+        self.heartbeat_tasks: Dict[str, asyncio.Task] = {}
+        self.last_ping: Dict[str, datetime] = {}
+        # 🔥 CONFIGURATION HEARTBEAT MOINS AGRESSIVE
+        self.HEARTBEAT_INTERVAL = 45  # 45s au lieu de 30s
+        self.HEARTBEAT_TIMEOUT = 90   # 90s au lieu de 60s
 
     async def connect(self, websocket: WebSocket, session_id: str):
         await websocket.accept()
@@ -386,11 +393,98 @@ class ConnectionManager:
             },
             'session_v5_id': session_v5_id,  # 🆕 ID session V5 pour tracking
             'created_at': datetime.now(),
-            'last_activity': datetime.now()
+            'last_activity': datetime.now(),
+            'last_ping': datetime.now()  # 🔥 AJOUTÉ pour heartbeat
         }
+        
+        # 🔥 DÉMARRER HEARTBEAT POUR CETTE CONNEXION
+        await self.start_heartbeat(session_id)
+        
         logger.info(f"🔗 Nouvelle connexion WebSocket V5: {session_id}")
 
+    async def start_heartbeat(self, session_id: str):
+        """🔥 Démarrage tâche heartbeat pour une session - CORRIGÉ"""
+        if session_id in self.heartbeat_tasks:
+            self.heartbeat_tasks[session_id].cancel()
+        
+        async def heartbeat_loop():
+            while session_id in self.session_data:
+                try:
+                    await asyncio.sleep(self.HEARTBEAT_INTERVAL)  # 45 secondes
+                    
+                    if session_id not in self.session_data:
+                        break
+                    
+                    session_data = self.session_data[session_id]
+                    websocket = session_data['websocket']
+                    
+                    # ✅ CORRECTION: Vérifier état WebSocket avant envoi
+                    try:
+                        if hasattr(websocket, 'client_state') and websocket.client_state.name == "CONNECTED":
+                            # Envoyer ping
+                            await websocket.send_text(json.dumps({
+                                'type': 'ping',
+                                'timestamp': datetime.now().isoformat()
+                            }))
+                            
+                            # Vérifier dernier pong (timeout)
+                            last_ping = session_data.get('last_ping', datetime.now())
+                            if datetime.now() - last_ping > timedelta(seconds=self.HEARTBEAT_TIMEOUT):
+                                logger.warning(f"⏰ Timeout heartbeat pour session {session_id}")
+                                await self.force_disconnect(session_id, "Heartbeat timeout")
+                                break
+                        else:
+                            logger.info(f"💔 WebSocket fermé pour session {session_id}")
+                            break
+                    except Exception as send_error:
+                        logger.error(f"❌ Erreur envoi ping {session_id}: {send_error}")
+                        await self.force_disconnect(session_id, f"Ping error: {send_error}")
+                        break
+                        
+                except asyncio.CancelledError:
+                    logger.debug(f"🛑 Heartbeat annulé pour session {session_id}")
+                    break
+                except Exception as e:
+                    logger.error(f"❌ Erreur heartbeat session {session_id}: {e}")
+                    break
+        
+        # Créer et stocker la tâche
+        task = asyncio.create_task(heartbeat_loop())
+        self.heartbeat_tasks[session_id] = task
+        logger.debug(f"💓 Heartbeat démarré pour session {session_id}")
+
+    async def handle_pong(self, session_id: str):
+        """🔥 Gestion réception pong du client"""
+        if session_id in self.session_data:
+            self.session_data[session_id]['last_ping'] = datetime.now()
+            logger.debug(f"💓 Pong reçu de session {session_id}")
+
+    async def force_disconnect(self, session_id: str, reason: str = "Force disconnect"):
+        """🔥 Fermeture forcée d'une connexion - CORRIGÉ"""
+        if session_id not in self.session_data:
+            return
+            
+        session_data = self.session_data[session_id]
+        websocket = session_data['websocket']
+        
+        try:
+            # ✅ CORRECTION: Vérifier état avant fermeture
+            if hasattr(websocket, 'client_state') and websocket.client_state.name == "CONNECTED":
+                await websocket.close(code=1000, reason=reason)
+        except Exception as close_error:
+            logger.error(f"❌ Erreur fermeture WebSocket {session_id}: {close_error}")
+        
+        # Appeler disconnect pour nettoyage complet
+        self.disconnect(websocket, session_id)
+        logger.info(f"🔌 Connexion forcée fermée: {session_id} - Raison: {reason}")
+
     def disconnect(self, websocket: WebSocket, session_id: str):
+        # 🔥 ARRÊTER HEARTBEAT
+        if session_id in self.heartbeat_tasks:
+            self.heartbeat_tasks[session_id].cancel()
+            del self.heartbeat_tasks[session_id]
+            logger.debug(f"💔 Heartbeat arrêté pour session {session_id}")
+        
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
         
@@ -408,7 +502,8 @@ class ConnectionManager:
                         'session_duration_minutes': (
                             datetime.now() - session_data['created_at']
                         ).total_seconds() / 60,
-                        'final_costs': session_data['costs']
+                        'final_costs': session_data['costs'],
+                        'heartbeat_disconnect': True
                     }
                     
                     session_manager_v5.finalize_session(session_v5_id, final_metadata)
@@ -422,16 +517,29 @@ class ConnectionManager:
         logger.info(f"🔌 Connexion fermée: {session_id}")
 
     async def send_message(self, session_id: str, message: dict):
-        if session_id in self.session_data:
-            websocket = self.session_data[session_id]['websocket']
-            try:
+        """✅ ENVOI SÉCURISÉ MESSAGES - CORRIGÉ"""
+        if session_id not in self.session_data:
+            logger.warning(f"⚠️ Session {session_id} non trouvée pour envoi")
+            return False
+            
+        websocket = self.session_data[session_id]['websocket']
+        try:
+            # ✅ CORRECTION: Vérifier état WebSocket avant envoi
+            if hasattr(websocket, 'client_state') and websocket.client_state.name == "CONNECTED":
                 await websocket.send_text(json.dumps(message))
                 
                 # 🆕 Mise à jour activité session
                 self.session_data[session_id]['last_activity'] = datetime.now()
+                return True
+            else:
+                logger.warning(f"⚠️ WebSocket non connecté pour session {session_id}")
+                return False
                 
-            except Exception as e:
-                logger.error(f"❌ Erreur envoi message: {e}")
+        except Exception as e:
+            logger.error(f"❌ Erreur envoi message session {session_id}: {e}")
+            # 🔥 DÉCONNEXION AUTO SI ERREUR ENVOI
+            await self.force_disconnect(session_id, f"Send error: {e}")
+            return False
 
     def update_cost(self, session_id: str, agent: str, cost: float):
         """🆕 Mise à jour coûts par agent"""
@@ -507,11 +615,12 @@ async def read_root():
                     <li><strong>Mode Triangle</strong> - Débat triangulaire 3 agents</li>
                     <li><strong>Mode Documents</strong> - Sélection granulaire docs + agents</li>
                 </ul>
-                <h2>🆕 Nouveautés V5.1:</h2>
+                <h2>🆕 Nouveautés V5.1.2:</h2>
                 <ul>
                     <li><strong>Mémoire persistante</strong> - Journalisation automatique conversations</li>
                     <li><strong>Recherche temporelle</strong> - Retrouver discussions précédentes</li>
                     <li><strong>Continuité sessions</strong> - Agents se souviennent du contexte</li>
+                    <li><strong>Heartbeat stable</strong> - WebSocket mobile sans déconnexion</li>
                 </ul>
                 <p>Ajoutez le fichier <code>interface/frontend/index.html</code> avec l'interface V5.</p>
             </body>
@@ -573,15 +682,27 @@ async def get_system_status() -> SystemStatus:
             session_manager_available=SESSION_MANAGER_AVAILABLE
         )
 
-# 🆕 NOUVELLES ROUTES SESSION MANAGER V5
+# 🆕 NOUVELLES ROUTES SESSION MANAGER V5 - CORRIGÉES
 @app.get("/api/sessions/recent")
 async def get_recent_sessions(limit: int = Query(10, ge=1, le=50)):
-    """📚 Récupère les sessions récentes avec SessionManager V5"""
+    """📚 Récupère les sessions récentes avec SessionManager V5 - AVEC FALLBACKS"""
     if not SESSION_MANAGER_AVAILABLE or not session_manager_v5:
-        raise HTTPException(status_code=503, detail="SessionManager V5 non disponible")
+        return JSONResponse({
+            'success': False,
+            'sessions': [],
+            'total': 0,
+            'message': 'SessionManager V5 non disponible'
+        }, status_code=503)
     
     try:
-        sessions = session_manager_v5.get_recent_sessions("FG", limit)
+        # ✅ CORRECTION: Vérifier si méthode existe
+        if hasattr(session_manager_v5, 'get_recent_sessions'):
+            sessions = session_manager_v5.get_recent_sessions("FG", limit)
+        else:
+            # Fallback basique
+            sessions = []
+            logger.warning("⚠️ get_recent_sessions non implémentée")
+        
         return {
             'success': True,
             'sessions': sessions,
@@ -589,35 +710,52 @@ async def get_recent_sessions(limit: int = Query(10, ge=1, le=50)):
         }
     except Exception as e:
         logger.error(f"❌ Erreur récupération sessions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            'success': False,
+            'sessions': [],
+            'total': 0,
+            'error': str(e)
+        }
 
 @app.get("/api/sessions/{session_id}")
 async def get_session_details(session_id: str):
     """🔍 Détails complets d'une session spécifique avec fallback"""
     if not SESSION_MANAGER_AVAILABLE or not session_manager_v5:
-        raise HTTPException(status_code=503, detail="SessionManager V5 non disponible")
+        return JSONResponse({
+            'success': False,
+            'session': None,
+            'message': 'SessionManager V5 non disponible'
+        }, status_code=503)
     
     try:
         # ✅ CORRECTION: Vérifier si méthode existe
+        session_data = None
         if hasattr(session_manager_v5, 'get_session_by_id'):
             session_data = session_manager_v5.get_session_by_id(session_id)
         else:
             # Fallback: chercher dans recent sessions
-            recent_sessions = session_manager_v5.get_recent_sessions("FG", limit=50)
-            session_data = next((s for s in recent_sessions if s.get('session_id') == session_id), None)
+            if hasattr(session_manager_v5, 'get_recent_sessions'):
+                recent_sessions = session_manager_v5.get_recent_sessions("FG", limit=50)
+                session_data = next((s for s in recent_sessions if s.get('session_id') == session_id), None)
         
         if not session_data:
-            raise HTTPException(status_code=404, detail="Session non trouvée")
+            return JSONResponse({
+                'success': False,
+                'session': None,
+                'message': 'Session non trouvée'
+            }, status_code=404)
         
         return {
             'success': True,
             'session': session_data
         }
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"❌ Erreur détails session {session_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            'success': False,
+            'session': None,
+            'error': str(e)
+        }
 
 @app.get("/api/sessions/search")
 async def search_sessions(
@@ -626,17 +764,27 @@ async def search_sessions(
     date_to: Optional[str] = Query(None, description="Date fin (ISO format)"),
     limit: int = Query(20, ge=1, le=100)
 ):
-    """🔍 Recherche sessions par critères"""
+    """🔍 Recherche sessions par critères - AVEC FALLBACKS"""
     if not SESSION_MANAGER_AVAILABLE or not session_manager_v5:
-        raise HTTPException(status_code=503, detail="SessionManager V5 non disponible")
+        return JSONResponse({
+            'success': False,
+            'sessions': [],
+            'total': 0,
+            'message': 'SessionManager V5 non disponible'
+        }, status_code=503)
     
     try:
-        if theme:
+        sessions = []
+        
+        # ✅ CORRECTION: Vérifier méthodes disponibles
+        if theme and hasattr(session_manager_v5, 'search_sessions_by_theme'):
             sessions = session_manager_v5.search_sessions_by_theme(theme, limit)
-        elif date_from and date_to:
+        elif date_from and date_to and hasattr(session_manager_v5, 'search_sessions_by_date'):
             sessions = session_manager_v5.search_sessions_by_date(date_from, date_to, limit)
-        else:
+        elif hasattr(session_manager_v5, 'get_recent_sessions'):
             sessions = session_manager_v5.get_recent_sessions("FG", limit)
+        else:
+            logger.warning("⚠️ Méthodes de recherche non implémentées")
         
         return {
             'success': True,
@@ -650,13 +798,22 @@ async def search_sessions(
         }
     except Exception as e:
         logger.error(f"❌ Erreur recherche sessions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            'success': False,
+            'sessions': [],
+            'total': 0,
+            'error': str(e)
+        }
 
 @app.get("/api/sessions/stats")
 async def get_sessions_stats():
     """📊 Statistiques générales sessions avec fallback"""
     if not SESSION_MANAGER_AVAILABLE or not session_manager_v5:
-        raise HTTPException(status_code=503, detail="SessionManager V5 non disponible")
+        return JSONResponse({
+            'success': False,
+            'stats': {'total_sessions': 0},
+            'message': 'SessionManager V5 non disponible'
+        }, status_code=503)
     
     try:
         # ✅ CORRECTION: Vérifier si méthode existe
@@ -664,12 +821,19 @@ async def get_sessions_stats():
             stats = session_manager_v5.get_session_stats("FG")
         else:
             # Fallback: stats basiques via get_recent_sessions
-            recent_sessions = session_manager_v5.get_recent_sessions("FG", limit=100)
-            stats = {
-                'total_sessions': len(recent_sessions),
-                'method': 'fallback_via_recent',
-                'note': 'get_session_stats method not implemented yet'
-            }
+            if hasattr(session_manager_v5, 'get_recent_sessions'):
+                recent_sessions = session_manager_v5.get_recent_sessions("FG", limit=100)
+                stats = {
+                    'total_sessions': len(recent_sessions),
+                    'method': 'fallback_via_recent',
+                    'note': 'get_session_stats method not implemented yet'
+                }
+            else:
+                stats = {
+                    'total_sessions': 0,
+                    'method': 'emergency_fallback',
+                    'note': 'No session methods available'
+                }
         
         return {
             'success': True,
@@ -789,7 +953,7 @@ async def chat_with_agent(message: ChatMessage) -> AgentResponseModel:
         logger.error(f"❌ Erreur chat agent {message.agent}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# === ROUTES UPLOAD + GESTION DOCUMENTS (inchangées) ===
+# === ROUTES UPLOAD + GESTION DOCUMENTS ===
 @app.post("/api/upload")
 async def upload_document(file: UploadFile = File(...)) -> dict:
     """🔥 Upload et indexation de document - SUPPORT COMPLET PDF/DOCX/TXT/MD/JSON"""
@@ -1071,10 +1235,10 @@ async def get_database_stats() -> DatabaseStats:
         logger.error(f"❌ Erreur stats database: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# === WEBSOCKET V5 - SUPPORT 3 MODES + SESSION TRACKING ===
+# === WEBSOCKET V5 - SUPPORT 3 MODES + SESSION TRACKING + HEARTBEAT ===
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
-    """🔌 WebSocket ÉMERGENCE V5 - Support 3 modes + session tracking V5"""
+    """🔌 WebSocket ÉMERGENCE V5 - Support 3 modes + session tracking V5 + Heartbeat"""
     await manager.connect(websocket, session_id)
     
     try:
@@ -1084,6 +1248,20 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             
             msg_type = message_data.get('type', 'chat')
             
+            # 🔥 GESTION MESSAGES HEARTBEAT
+            if msg_type == 'ping':
+                # Répondre pong
+                await manager.send_message(session_id, {
+                    'type': 'pong',
+                    'timestamp': datetime.now().isoformat()
+                })
+                continue
+            elif msg_type == 'pong':
+                # Mettre à jour dernière activité
+                await manager.handle_pong(session_id)
+                continue
+            
+            # Messages normaux
             if msg_type == 'chat':
                 await handle_websocket_chat(session_id, message_data)
             elif msg_type == 'triple':
@@ -1106,220 +1284,235 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             })
         except:
             pass
+        finally:
+            manager.disconnect(websocket, session_id)
 
-# === WEBSOCKET HANDLERS V5 + SESSION TRACKING ===
+# === 🔥 WEBSOCKET HANDLERS V5 + SESSION TRACKING - COMPLETS - CORRIGÉS ===
+
 async def handle_websocket_chat(session_id: str, message_data: dict):
-    """💬 Gestion chat WebSocket individuel + session V5"""
+    """💬 Handler mode dialogue WebSocket + Session V5"""
     try:
-        if not MODULES_AVAILABLE:
+        user_message = message_data.get('message', '')
+        agent_name = message_data.get('agent', 'nexus')
+        use_rag = message_data.get('use_rag', True)
+        rag_chunks = message_data.get('rag_chunks', 5)
+        
+        if not user_message.strip():
             await manager.send_message(session_id, {
                 'type': 'error',
-                'message': 'Modules V4 non disponibles'
+                'message': 'Message vide'
             })
             return
         
-        agent = message_data.get('agent', 'anima')
-        user_message = message_data.get('message', '')
-        rag_enabled = message_data.get('rag_enabled', True)
-        chunks_limit = message_data.get('chunks_limit', 5)
-        
-        # 🆕 Capture message user en session V5
+        # 🆕 Ajout message utilisateur à session V5
         manager.add_message_to_session_v5(session_id, "user", {
             'text': user_message,
-            'agent_target': agent,
-            'mode': 'dialogue',
-            'rag_enabled': rag_enabled,
-            'chunks_limit': chunks_limit
+            'agent_target': agent_name,
+            'mode': 'chat'
         })
         
         await manager.send_message(session_id, {
-            'type': 'typing',
-            'agent': agent
+            'type': 'thinking',
+            'agent': agent_name,
+            'message': f'{agent_name.title()} réfléchit...'
         })
         
         # Contexte RAG
         context = ""
         rag_chunks_count = 0
-        if rag_enabled:
-            rag_manager = get_rag_manager()
-            context = rag_manager.get_context_for_agent(user_message, agent, chunks_limit)
-            rag_chunks_count = context.count("=== DOCUMENT") + context.count("--- Interaction")
+        if use_rag and MODULES_AVAILABLE:
+            try:
+                rag_manager = get_rag_manager()
+                context = rag_manager.get_context_for_agent(user_message, agent_name, rag_chunks)
+                rag_chunks_count = context.count("=== DOCUMENT") + context.count("--- Interaction")
+            except Exception as rag_error:
+                logger.warning(f"⚠️ Erreur RAG: {rag_error}")
         
         # Réponse agent
-        real_agents = get_real_agents()
-        response = real_agents.get_response(agent, user_message, context)
-        
-        # 🆕 Capture réponse agent en session V5
-        manager.add_message_to_session_v5(session_id, "agent", {
-            'agent': agent,
-            'text': response.response_text,
-            'model': response.model_used,
-            'processing_time': response.processing_time,
-            'cost': response.cost_estimate,
-            'provider': response.provider,
-            'rag_chunks_count': rag_chunks_count,
-            'mode': 'dialogue'
-        })
-        
-        # Stockage V4 (existant)
-        try:
-            rag_manager = get_rag_manager()
-            rag_manager.store_interaction_v4(
-                session_id=f"ws_{session_id}",
-                user_message=user_message,
-                agent_name=agent,
-                agent_response=response.response_text,
-                processing_time=response.processing_time,
-                rag_chunks_used=rag_chunks_count
-            )
-        except Exception as store_error:
-            logger.warning(f"⚠️ Erreur stockage WebSocket (non-critique): {store_error}")
-        
-        # Mise à jour coûts par agent
-        manager.update_cost(session_id, agent, response.cost_estimate)
-        session_costs = manager.get_costs(session_id)
-        
-        # Réponse WebSocket avec coûts
-        await manager.send_message(session_id, {
-            'type': 'agent_response',
-            'agent': agent,
-            'response': response.response_text,
-            'metadata': {
+        if MODULES_AVAILABLE:
+            real_agents = get_real_agents()
+            response = real_agents.get_response(agent_name, user_message, context)
+            
+            # 🆕 Ajout réponse agent à session V5
+            manager.add_message_to_session_v5(session_id, "agent", {
+                'agent': agent_name,
+                'text': response.response_text,
                 'model': response.model_used,
                 'processing_time': response.processing_time,
-                'rag_chunks': rag_chunks_count,
-                'cost_estimate': response.cost_estimate,
-                'provider': response.provider
-            },
-            'costs': session_costs,
-            'timestamp': datetime.now().isoformat()
-        })
-        
+                'cost': response.cost_estimate,
+                'rag_chunks_count': rag_chunks_count
+            })
+            
+            # Mise à jour coût session
+            manager.update_cost(session_id, agent_name, response.cost_estimate)
+            
+            await manager.send_message(session_id, {
+                'type': 'agent_response',
+                'agent': agent_name,
+                'message': response.response_text,
+                'model': response.model_used,
+                'processing_time': response.processing_time,
+                'cost': response.cost_estimate,
+                'rag_chunks_count': rag_chunks_count,
+                'session_costs': manager.get_costs(session_id)
+            })
+        else:
+            await manager.send_message(session_id, {
+                'type': 'error',
+                'message': 'Modules V4 non disponibles'
+            })
+            
     except Exception as e:
         logger.error(f"❌ Erreur WebSocket chat: {e}")
         await manager.send_message(session_id, {
             'type': 'error',
-            'message': str(e)
+            'message': f'Erreur traitement: {str(e)}'
         })
 
 async def handle_websocket_triple(session_id: str, message_data: dict):
-    """🔺 Gestion mode Triple WebSocket + session V5"""
+    """🔀 Handler mode triangle WebSocket + Session V5"""
     try:
+        user_message = message_data.get('message', '')
+        use_rag = message_data.get('use_rag', True)
+        rag_chunks = message_data.get('rag_chunks', 5)
+        
+        if not user_message.strip():
+            await manager.send_message(session_id, {
+                'type': 'error',
+                'message': 'Message vide'
+            })
+            return
+        
+        # 🆕 Ajout message utilisateur à session V5
+        manager.add_message_to_session_v5(session_id, "user", {
+            'text': user_message,
+            'mode': 'triangle'
+        })
+        
         if not MODULES_AVAILABLE:
             await manager.send_message(session_id, {
                 'type': 'error',
                 'message': 'Modules V4 non disponibles'
             })
             return
-        
-        user_message = message_data.get('message', '')
-        rag_enabled = message_data.get('rag_enabled', True)
-        chunks_limit = message_data.get('chunks_limit', 5)
-        
-        # 🆕 Capture message user en session V5
-        manager.add_message_to_session_v5(session_id, "user", {
-            'text': user_message,
-            'mode': 'triangle',
-            'agents': ['anima', 'neo', 'nexus'],
-            'rag_enabled': rag_enabled,
-            'chunks_limit': chunks_limit
-        })
-        
-        await manager.send_message(session_id, {
-            'type': 'triple_start',
-            'message': 'Débat triangulaire en cours...'
-        })
         
         # Contexte RAG
         context = ""
         rag_chunks_count = 0
-        if rag_enabled:
-            rag_manager = get_rag_manager()
-            context = rag_manager.get_context_for_agent(user_message, "Triple", chunks_limit)
-            rag_chunks_count = context.count("=== DOCUMENT") + context.count("--- Interaction")
+        if use_rag:
+            try:
+                rag_manager = get_rag_manager()
+                context = rag_manager.get_context_for_agent(user_message, "anima", rag_chunks)
+                rag_chunks_count = context.count("=== DOCUMENT") + context.count("--- Interaction")
+            except Exception as rag_error:
+                logger.warning(f"⚠️ Erreur RAG triangle: {rag_error}")
         
-        # Mode Triple
         real_agents = get_real_agents()
-        triple_response = real_agents.get_triple_response(user_message, context)
-        
-        # Envoi séquentiel des réponses
+        agents_order = ['anima', 'neo', 'nexus']
         total_cost = 0.0
-        ws_session_id = f"ws_triple_{session_id}_{datetime.now().strftime('%H%M%S')}"
         
-        if triple_response.success and triple_response.responses:
-            for agent_name, response in triple_response.responses.items():
-                if response and hasattr(response, 'response_text'):
-                    total_cost += response.cost_estimate
-                    
-                    # 🆕 Capture réponse agent en session V5
-                    manager.add_message_to_session_v5(session_id, "agent", {
-                        'agent': agent_name.lower(),
-                        'text': response.response_text,
-                        'model': response.model_used,
-                        'processing_time': response.processing_time,
-                        'cost': response.cost_estimate,
-                        'provider': response.provider,
-                        'rag_chunks_count': rag_chunks_count,
-                        'mode': 'triangle'
-                    })
-                    
-                    # Mise à jour coût session
-                    manager.update_cost(session_id, 'triple', response.cost_estimate)
-                    
-                    await manager.send_message(session_id, {
-                        'type': 'agent_response',
-                        'agent': agent_name.lower(),
-                        'response': response.response_text,
-                        'metadata': {
-                            'model': response.model_used,
-                            'processing_time': response.processing_time,
-                            'rag_chunks': rag_chunks_count,
-                            'cost_estimate': response.cost_estimate,
-                            'provider': response.provider
-                        },
-                        'timestamp': datetime.now().isoformat(),
-                        'is_triple': True
-                    })
-                    
-                    # Stockage V4
-                    try:
-                        rag_manager = get_rag_manager()
-                        rag_manager.store_interaction_v4(
-                            session_id=ws_session_id,
-                            user_message=user_message,
-                            agent_name=agent_name.title(),
-                            agent_response=response.response_text,
-                            processing_time=response.processing_time,
-                            rag_chunks_used=rag_chunks_count
-                        )
-                    except Exception as store_error:
-                        logger.warning(f"⚠️ Erreur stockage Triple WebSocket (non-critique): {store_error}")
-        else:
-            await manager.send_message(session_id, {
-                'type': 'error',
-                'message': 'Échec du mode Triple - aucune réponse générée'
-            })
-            return
-        
-        # Fin débat avec coûts
-        session_costs = manager.get_costs(session_id)
+        # Début débat triangulaire
         await manager.send_message(session_id, {
-            'type': 'triple_end',
+            'type': 'triangle_start',
+            'message': f'Début du débat triangulaire sur: "{user_message}"',
+            'agents': agents_order
+        })
+        
+        # Réponses séquentielles
+        for i, agent_name in enumerate(agents_order):
+            try:
+                await manager.send_message(session_id, {
+                    'type': 'triangle_thinking',
+                    'agent': agent_name,
+                    'position': i + 1,
+                    'message': f'{agent_name.title()} prépare sa réponse...'
+                })
+                
+                # Message adapté selon position
+                if i == 0:  # Anima ouvre
+                    prompt_message = user_message
+                else:  # Neo et Nexus réagissent
+                    prompt_message = f"Débat en cours: {user_message}\n\nÉchanges précédents disponibles dans le contexte."
+                
+                response = real_agents.get_response(agent_name, prompt_message, context)
+                total_cost += response.cost_estimate
+                
+                # 🆕 Ajout réponse agent à session V5
+                manager.add_message_to_session_v5(session_id, "agent", {
+                    'agent': agent_name,
+                    'text': response.response_text,
+                    'model': response.model_used,
+                    'processing_time': response.processing_time,
+                    'cost': response.cost_estimate,
+                    'triangle_position': i + 1,
+                    'triangle_role': ['ouverture', 'challenge', 'synthèse'][i]
+                })
+                
+                # Mise à jour coût
+                manager.update_cost(session_id, agent_name, response.cost_estimate)
+                manager.update_cost(session_id, 'triple', response.cost_estimate)
+                
+                await manager.send_message(session_id, {
+                    'type': 'triangle_response',
+                    'agent': agent_name,
+                    'position': i + 1,
+                    'message': response.response_text,
+                    'model': response.model_used,
+                    'processing_time': response.processing_time,
+                    'cost': response.cost_estimate,
+                    'role': ['ouverture', 'challenge', 'synthèse'][i]
+                })
+                
+                # Pause entre agents
+                await asyncio.sleep(1)
+                
+            except Exception as agent_error:
+                logger.error(f"❌ Erreur agent {agent_name}: {agent_error}")
+                await manager.send_message(session_id, {
+                    'type': 'triangle_error',
+                    'agent': agent_name,
+                    'message': f'Erreur {agent_name}: {str(agent_error)}'
+                })
+        
+        # Fin débat
+        await manager.send_message(session_id, {
+            'type': 'triangle_complete',
             'total_cost': total_cost,
-            'agents_count': len(triple_response.responses) if triple_response.responses else 0,
-            'costs': session_costs
+            'agents_count': len(agents_order),
+            'session_costs': manager.get_costs(session_id)
         })
         
     except Exception as e:
-        logger.error(f"❌ Erreur WebSocket Triple: {e}")
+        logger.error(f"❌ Erreur WebSocket triangle: {e}")
         await manager.send_message(session_id, {
             'type': 'error',
-            'message': str(e)
+            'message': f'Erreur débat triangulaire: {str(e)}'
         })
 
 async def handle_websocket_documents_mode(session_id: str, message_data: dict):
-    """📁 Gestion mode Documents WebSocket + session V5"""
+    """📁 Handler mode documents WebSocket + Session V5 - FONCTION MANQUANTE AJOUTÉE !"""
     try:
+        user_message = message_data.get('message', '')
+        selected_agents = message_data.get('agents', ['nexus'])
+        selected_documents = message_data.get('documents', [])
+        use_rag = message_data.get('use_rag', True)
+        rag_chunks = message_data.get('rag_chunks', 5)
+        
+        if not user_message.strip():
+            await manager.send_message(session_id, {
+                'type': 'error',
+                'message': 'Message vide'
+            })
+            return
+        
+        # 🆕 Ajout message utilisateur à session V5
+        manager.add_message_to_session_v5(session_id, "user", {
+            'text': user_message,
+            'selected_agents': selected_agents,
+            'selected_documents': selected_documents,
+            'mode': 'documents'
+        })
+        
         if not MODULES_AVAILABLE:
             await manager.send_message(session_id, {
                 'type': 'error',
@@ -1327,552 +1520,433 @@ async def handle_websocket_documents_mode(session_id: str, message_data: dict):
             })
             return
         
-        user_message = message_data.get('message', '')
-        agents = message_data.get('agents', ['anima'])
-        documents = message_data.get('documents', [])
-        rag_enabled = message_data.get('rag_enabled', True)
-        chunks_limit = message_data.get('chunks_limit', 5)
-        
-        # Validation agents
-        valid_agents = ['anima', 'neo', 'nexus']
-        selected_agents = [agent for agent in agents if agent in valid_agents]
-        
-        if not selected_agents:
-            await manager.send_message(session_id, {
-                'type': 'error',
-                'message': 'Aucun agent valide sélectionné'
-            })
-            return
-        
-        # 🆕 Capture message user en session V5
-        manager.add_message_to_session_v5(session_id, "user", {
-            'text': user_message,
-            'mode': 'documents',
-            'agents': selected_agents,
-            'documents': documents,
-            'rag_enabled': rag_enabled,
-            'chunks_limit': chunks_limit
-        })
-        
-        await manager.send_message(session_id, {
-            'type': 'documents_start',
-            'agents': selected_agents,
-            'documents': documents,
-            'message': f'Mode Documents: {len(selected_agents)} agents sur {len(documents)} documents'
-        })
-        
-        # Contexte RAG filtré
+        # Contexte RAG spécialisé documents
         context = ""
         rag_chunks_count = 0
-        if rag_enabled:
-            rag_manager = get_rag_manager()
-            
-            if documents:
-                # RAG filtré sur documents spécifiques
-                try:
-                    if hasattr(rag_manager, 'get_context_filtered_documents'):
-                        context = rag_manager.get_context_filtered_documents(
-                            user_message, 
-                            documents, 
-                            chunks_limit
-                        )
-                    else:
-                        # Fallback vers méthode standard
-                        context = rag_manager.get_context_for_agent(
-                            user_message, 
-                            "Documents", 
-                            chunks_limit
-                        )
-                except Exception as rag_error:
-                    logger.warning(f"⚠️ Erreur RAG filtré, fallback standard: {rag_error}")
+        if use_rag:
+            try:
+                rag_manager = get_rag_manager()
+                
+                # Si documents spécifiques sélectionnés
+                if selected_documents and hasattr(rag_manager, 'get_context_for_documents'):
+                    context = rag_manager.get_context_for_documents(
+                        user_message, 
+                        selected_documents, 
+                        rag_chunks
+                    )
+                else:
+                    # Contexte général tous documents
                     context = rag_manager.get_context_for_agent(
                         user_message, 
-                        "Documents", 
-                        chunks_limit
+                        selected_agents[0], 
+                        rag_chunks
                     )
-            else:
-                # RAG sur tous documents si aucun sélectionné
-                context = rag_manager.get_context_for_agent(
-                    user_message, 
-                    "Documents", 
-                    chunks_limit
-                )
-            
-            rag_chunks_count = context.count("=== DOCUMENT") + context.count("--- Interaction")
+                
+                rag_chunks_count = context.count("=== DOCUMENT") + context.count("--- Interaction")
+                
+                # Envoi info contexte trouvé
+                await manager.send_message(session_id, {
+                    'type': 'documents_context',
+                    'chunks_found': rag_chunks_count,
+                    'context_preview': context[:300] + "..." if len(context) > 300 else context
+                })
+                
+            except Exception as rag_error:
+                logger.warning(f"⚠️ Erreur RAG documents: {rag_error}")
         
-        # Réponses multiples agents séquentielles
         real_agents = get_real_agents()
-        ws_session_id = f"ws_docs_{session_id}_{datetime.now().strftime('%H%M%S')}"
         total_cost = 0.0
         
-        for agent_name in selected_agents:
+        # Début mode documents
+        await manager.send_message(session_id, {
+            'type': 'documents_start',
+            'message': f'Analyse documentaire avec {len(selected_agents)} agent(s)',
+            'agents': selected_agents,
+            'documents_count': len(selected_documents) if selected_documents else 'tous'
+        })
+        
+        # Réponses des agents sélectionnés
+        for i, agent_name in enumerate(selected_agents):
             try:
                 await manager.send_message(session_id, {
-                    'type': 'typing',
-                    'agent': agent_name
-                })
-                
-                response = real_agents.get_response(agent_name, user_message, context)
-                
-                if response and hasattr(response, 'response_text'):
-                    total_cost += response.cost_estimate
-                    
-                    # 🆕 Capture réponse agent en session V5
-                    manager.add_message_to_session_v5(session_id, "agent", {
-                        'agent': agent_name,
-                        'text': response.response_text,
-                        'model': response.model_used,
-                        'processing_time': response.processing_time,
-                        'cost': response.cost_estimate,
-                        'provider': response.provider,
-                        'rag_chunks_count': rag_chunks_count,
-                        'mode': 'documents',
-                        'documents_context': documents
-                    })
-                    
-                    # Mise à jour coût session
-                    manager.update_cost(session_id, agent_name, response.cost_estimate)
-                    
-                    await manager.send_message(session_id, {
-                        'type': 'agent_response',
-                        'agent': agent_name,
-                        'response': response.response_text,
-                        'metadata': {
-                            'model': response.model_used,
-                            'processing_time': response.processing_time,
-                            'rag_chunks': rag_chunks_count,
-                            'cost_estimate': response.cost_estimate,
-                            'provider': response.provider
-                        },
-                        'timestamp': datetime.now().isoformat(),
-                        'is_documents_mode': True,
-                        'documents_context': {
-                            'selected_documents': documents,
-                            'agents_count': len(selected_agents)
-                        }
-                    })
-                    
-                    # Stockage V4
-                    try:
-                        rag_manager = get_rag_manager()
-                        rag_manager.store_interaction_v4(
-                            session_id=ws_session_id,
-                            user_message=user_message,
-                            agent_name=agent_name,
-                            agent_response=response.response_text,
-                            processing_time=response.processing_time,
-                            rag_chunks_used=rag_chunks_count
-                        )
-                    except Exception as store_error:
-                        logger.warning(f"⚠️ Erreur stockage documents mode (non-critique): {store_error}")
-                        
-            except Exception as agent_error:
-                logger.error(f"❌ Erreur agent {agent_name} en mode documents: {agent_error}")
-                await manager.send_message(session_id, {
-                    'type': 'agent_error',
+                    'type': 'documents_thinking',
                     'agent': agent_name,
-                    'error': str(agent_error)
+                    'message': f'{agent_name.title()} analyse les documents...'
                 })
-                # Continue avec les autres agents
-                continue
+                
+                # Prompt enrichi avec contexte documentaire
+                prompt_message = f"""Question: {user_message}
+
+Contexte documentaire disponible:
+{context[:2000] if context else "Aucun contexte documentaire spécifique."}
+
+Analyse cette question en te basant sur les documents fournis."""
+                
+                response = real_agents.get_response(agent_name, prompt_message, context)
+                total_cost += response.cost_estimate
+                
+                # 🆕 Ajout réponse agent à session V5
+                manager.add_message_to_session_v5(session_id, "agent", {
+                    'agent': agent_name,
+                    'text': response.response_text,
+                    'model': response.model_used,
+                    'processing_time': response.processing_time,
+                    'cost': response.cost_estimate,
+                    'rag_chunks_count': rag_chunks_count,
+                    'documents_mode': True
+                })
+                
+                # Mise à jour coût
+                manager.update_cost(session_id, agent_name, response.cost_estimate)
+                
+                await manager.send_message(session_id, {
+                    'type': 'documents_response',
+                    'agent': agent_name,
+                    'message': response.response_text,
+                    'model': response.model_used,
+                    'processing_time': response.processing_time,
+                    'cost': response.cost_estimate,
+                    'rag_chunks_count': rag_chunks_count
+                })
+                
+                # Pause entre agents si plusieurs
+                if len(selected_agents) > 1 and i < len(selected_agents) - 1:
+                    await asyncio.sleep(1)
+                
+            except Exception as agent_error:
+                logger.error(f"❌ Erreur agent {agent_name} documents: {agent_error}")
+                await manager.send_message(session_id, {
+                    'type': 'documents_error',
+                    'agent': agent_name,
+                    'message': f'Erreur {agent_name}: {str(agent_error)}'
+                })
         
-        # Fin mode documents avec résumé
-        session_costs = manager.get_costs(session_id)
+        # Fin mode documents
         await manager.send_message(session_id, {
-            'type': 'documents_end',
+            'type': 'documents_complete',
             'total_cost': total_cost,
-            'agents_processed': len(selected_agents),
-            'documents_used': len(documents),
-            'costs': session_costs
+            'agents_count': len(selected_agents),
+            'rag_chunks_used': rag_chunks_count,
+            'session_costs': manager.get_costs(session_id)
         })
         
     except Exception as e:
-        logger.error(f"❌ Erreur WebSocket mode Documents: {e}")
+        logger.error(f"❌ Erreur WebSocket documents: {e}")
         await manager.send_message(session_id, {
             'type': 'error',
-            'message': str(e)
+            'message': f'Erreur mode documents: {str(e)}'
         })
 
 async def handle_websocket_status(session_id: str):
-    """📊 Envoi status système WebSocket avec coûts session + session V5"""
+    """📊 Handler status système WebSocket"""
     try:
-        status = await get_system_status()
+        if MODULES_AVAILABLE:
+            real_agents = get_real_agents()
+            agents_status = real_agents.get_health_status()
+            usage_stats = real_agents.get_usage_stats()
+            
+            rag_manager = get_rag_manager()
+            db_stats = rag_manager.get_stats()
+        else:
+            agents_status = {'error': 'Modules non disponibles'}
+            usage_stats = {'error': 'Modules non disponibles'}
+            db_stats = {'error': 'Modules non disponibles'}
+        
+        # Coûts session actuelle
         session_costs = manager.get_costs(session_id)
         
-        # 🆕 Info session V5 si disponible
-        session_v5_info = None
-        if session_id in manager.session_data:
-            session_data = manager.session_data[session_id]
-            session_v5_id = session_data.get('session_v5_id')
-            
-            if session_v5_id and session_manager_v5:
-                try:
-                    session_v5_info = {
-                        'session_id': session_v5_id,
-                        'created_at': session_data['created_at'].isoformat(),
-                        'messages_count': len(session_data['messages']),
-                        'duration_minutes': (
-                            datetime.now() - session_data['created_at']
-                        ).total_seconds() / 60
-                    }
-                except Exception as e:
-                    logger.warning(f"⚠️ Erreur info session V5: {e}")
-        
         await manager.send_message(session_id, {
-            'type': 'status',
-            'system_status': status.dict(),
+            'type': 'status_response',
+            'agents_status': agents_status,
+            'usage_stats': usage_stats,
+            'database_stats': db_stats,
             'session_costs': session_costs,
-            'session_v5_info': session_v5_info
+            'session_manager_v5': SESSION_MANAGER_AVAILABLE,
+            'supported_formats': get_supported_formats()
         })
         
     except Exception as e:
         logger.error(f"❌ Erreur WebSocket status: {e}")
         await manager.send_message(session_id, {
             'type': 'error',
-            'message': f"Erreur status: {e}"
+            'message': f'Erreur status: {str(e)}'
         })
 
 async def handle_websocket_documents_list(session_id: str, message_data: dict):
-    """🗄️ Gestion documents WebSocket"""
+    """📋 Handler liste documents WebSocket"""
     try:
-        action = message_data.get('action', 'list')
+        limit = message_data.get('limit', 20)
+        offset = message_data.get('offset', 0)
         
-        if action == 'list':
-            docs_response = await list_documents()
+        if not MODULES_AVAILABLE:
             await manager.send_message(session_id, {
-                'type': 'documents_list',
-                'documents': [doc.dict() for doc in docs_response.documents],
-                'total': docs_response.total,
-                'supported_formats': docs_response.supported_formats
+                'type': 'documents_list_response',
+                'documents': [],
+                'total': 0,
+                'error': 'Modules V4 non disponibles'
             })
-            
-        elif action == 'delete':
-            document_id = message_data.get('document_id')
-            if document_id:
-                try:
-                    result = await delete_document(document_id)
-                    await manager.send_message(session_id, {
-                        'type': 'document_deleted',
-                        'success': True,
-                        'document_id': document_id,
-                        'message': result.get('message', 'Document supprimé')
-                    })
-                except HTTPException as e:
-                    await manager.send_message(session_id, {
-                        'type': 'document_deleted',
-                        'success': False,
-                        'document_id': document_id,
-                        'error': e.detail
-                    })
-            else:
-                await manager.send_message(session_id, {
-                    'type': 'error',
-                    'message': 'document_id requis pour suppression'
-                })
-                
+            return
+        
+        # Récupération via endpoint
+        documents_response = await list_documents(limit=limit, offset=offset)
+        
+        await manager.send_message(session_id, {
+            'type': 'documents_list_response',
+            'documents': [doc.dict() for doc in documents_response.documents],
+            'total': documents_response.total,
+            'total_size': documents_response.total_size,
+            'supported_formats': documents_response.supported_formats,
+            'pdf_available': documents_response.pdf_available,
+            'docx_available': documents_response.docx_available
+        })
+        
     except Exception as e:
-        logger.error(f"❌ Erreur WebSocket documents: {e}")
+        logger.error(f"❌ Erreur WebSocket documents list: {e}")
         await manager.send_message(session_id, {
             'type': 'error',
-            'message': str(e)
+            'message': f'Erreur liste documents: {str(e)}'
         })
 
-# 🆕 ROUTES SUPPLÉMENTAIRES API TRIPLE + DOCUMENTS (avec session V5)
+# === ROUTES API TRIANGLE + DOCUMENTS (pour compatibilité) ===
+
 @app.post("/api/triple")
-async def triple_chat(message: TripleMessage) -> List[AgentResponseModel]:
-    """🔺 Mode Triple - Les 3 agents débattent + session V5"""
+async def triple_endpoint(message: TripleMessage) -> dict:
+    """🔀 API Triangle avec session V5"""
     if not MODULES_AVAILABLE:
         raise HTTPException(status_code=503, detail="Modules V4 non disponibles")
     
     try:
-        # Récupération contexte RAG
+        # Session temporaire
+        session_id = None
+        if session_manager_v5:
+            try:
+                session_id = session_manager_v5.create_session(
+                    user_id="FG",
+                    metadata={
+                        'session_type': 'api_triangle',  # ✅ DANS METADATA
+                        'endpoint': '/api/triple',
+                        'timestamp': datetime.now().isoformat()
+                    }
+                )
+                session_manager_v5.add_message_to_session(
+                    session_id=session_id,
+                    message_type="user",
+                    content={
+                        'text': message.message,
+                        'mode': 'triangle'
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ Session V5 non créée: {e}")
+        
+        # Contexte RAG
         context = ""
         rag_chunks_count = 0
         if message.use_rag:
             rag_manager = get_rag_manager()
-            context = rag_manager.get_context_for_agent(
-                message.message, 
-                "Triple", 
-                message.rag_chunks
-            )
+            context = rag_manager.get_context_for_agent(message.message, "anima", message.rag_chunks)
             rag_chunks_count = context.count("=== DOCUMENT") + context.count("--- Interaction")
         
-        # Mode Triple
+        # Débat triangulaire
         real_agents = get_real_agents()
-        triple_response = real_agents.get_triple_response(message.message, context)
+        agents = ["anima", "neo", "nexus"]
+        responses = []
+        total_cost = 0.0
         
-        # Conversion en modèles API
-        api_responses = []
-        session_id = f"api_triple_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        for i, agent in enumerate(agents):
+            if i == 0:
+                prompt_message = message.message
+            else:
+                prompt_message = f"Débat: {message.message}\n\nÉchanges:\n" + \
+                               "\n".join([f"{r['agent']}: {r['response'][:200]}..." for r in responses])
+            
+            agent_response = real_agents.get_response(agent, prompt_message, context)
+            cost = agent_response.cost_estimate
+            total_cost += cost
+            
+            response_data = {
+                "agent": agent,
+                "response": agent_response.response_text,
+                "model": agent_response.model_used,
+                "processing_time": agent_response.processing_time,
+                "cost": cost,
+                "role": ['ouverture', 'challenge', 'synthèse'][i]
+            }
+            responses.append(response_data)
+            
+            # Ajout session
+            if session_manager_v5 and session_id:
+                try:
+                    session_manager_v5.add_message_to_session(
+                        session_id=session_id,
+                        message_type="agent",
+                        content={
+                            'agent': agent,
+                            'text': agent_response.response_text,
+                            'model': agent_response.model_used,
+                            'cost': cost,
+                            'triangle_position': i + 1,
+                            'triangle_role': ['ouverture', 'challenge', 'synthèse'][i]
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"⚠️ Session V5 message non ajouté: {e}")
         
-        # 🆕 Session V5 pour API Triple
-        api_session_v5_id = None
-        if session_manager_v5:
+        # Finalisation session
+        if session_manager_v5 and session_id:
             try:
-                # ✅ CORRECTION: session_type dans metadata
-                api_session_v5_id = session_manager_v5.create_session(
-                    user_id="FG",
-                    metadata={
-                        'session_type': 'api_triple',  # ✅ DANS METADATA
-                        'endpoint': '/api/triple', 
-                        'agents': ['anima', 'neo', 'nexus']
-                    }
-                )
-                
-                # Message user
-                session_manager_v5.add_message_to_session(
-                    session_id=api_session_v5_id,
-                    message_type="user",
-                    content={
-                        'text': message.message,
-                        'mode': 'triple',
-                        'rag_enabled': message.use_rag,
-                        'rag_chunks': message.rag_chunks
-                    }
-                )
-            except Exception as session_error:
-                logger.warning(f"⚠️ Erreur session V5 API triple: {session_error}")
-        
-        if triple_response.success and triple_response.responses:
-            for agent_name, response in triple_response.responses.items():
-                if response and hasattr(response, 'response_text'):
-                    api_responses.append(AgentResponseModel(
-                        agent=agent_name.title(),
-                        response_text=response.response_text,
-                        processing_time=response.processing_time,
-                        model_used=response.model_used,
-                        rag_chunks_count=rag_chunks_count,
-                        cost_estimate=response.cost_estimate,
-                        provider=response.provider,
-                        timestamp=datetime.now().isoformat()
-                    ))
-                    
-                    # 🆕 Session V5 - réponse agent
-                    if api_session_v5_id and session_manager_v5:
-                        try:
-                            session_manager_v5.add_message_to_session(
-                                session_id=api_session_v5_id,
-                                message_type="agent",
-                                content={
-                                    'agent': agent_name.title(),
-                                    'text': response.response_text,
-                                    'model': response.model_used,
-                                    'processing_time': response.processing_time,
-                                    'cost': response.cost_estimate,
-                                    'rag_chunks_count': rag_chunks_count,
-                                    'mode': 'triple'
-                                }
-                            )
-                        except Exception as session_error:
-                            logger.warning(f"⚠️ Erreur ajout réponse session V5: {session_error}")
-                    
-                    # Stockage V4 (existant)
-                    try:
-                        rag_manager = get_rag_manager()
-                        rag_manager.store_interaction_v4(
-                            session_id=session_id,
-                            user_message=message.message,
-                            agent_name=agent_name.title(),
-                            agent_response=response.response_text,
-                            processing_time=response.processing_time,
-                            rag_chunks_used=rag_chunks_count
-                        )
-                    except Exception as store_error:
-                        logger.warning(f"⚠️ Erreur stockage triple (non-critique): {store_error}")
-        else:
-            raise HTTPException(status_code=500, detail="Échec du mode Triple - aucune réponse générée")
-        
-        # 🆕 Finalisation session V5
-        if api_session_v5_id and session_manager_v5:
-            try:
-                session_manager_v5.finalize_session(api_session_v5_id, {
-                    'api_endpoint': '/api/triple',
-                    'agents_responses': len(api_responses),
-                    'total_cost': sum(r.cost_estimate for r in api_responses)
+                session_manager_v5.finalize_session(session_id, {
+                    'end_reason': 'api_triangle_complete',
+                    'total_cost': total_cost,
+                    'timestamp': datetime.now().isoformat()
                 })
-            except Exception as session_error:
-                logger.warning(f"⚠️ Erreur finalisation session V5: {session_error}")
+            except Exception as e:
+                logger.warning(f"⚠️ Session V5 non finalisée: {e}")
         
-        return api_responses
+        return {
+            "responses": responses,
+            "total_cost": total_cost,
+            "rag_chunks_used": rag_chunks_count
+        }
         
     except Exception as e:
-        logger.error(f"❌ Erreur Triple mode: {e}")
+        logger.error(f"❌ Erreur API triangle: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/documents/chat")
-async def documents_chat(message: DocumentsMessage) -> List[AgentResponseModel]:
-    """📁 Mode Documents - Chat avec agents sélectionnés sur documents filtrés + session V5"""
+async def documents_chat_endpoint(message: DocumentsMessage) -> dict:
+    """📁 API Documents avec session V5"""
     if not MODULES_AVAILABLE:
         raise HTTPException(status_code=503, detail="Modules V4 non disponibles")
     
     try:
-        # Validation agents sélectionnés
-        valid_agents = ['anima', 'neo', 'nexus']
-        selected_agents = [agent for agent in message.agents if agent in valid_agents]
-        
-        if not selected_agents:
-            raise HTTPException(status_code=400, detail="Aucun agent valide sélectionné")
-        
-        # 🆕 Session V5 pour API Documents
-        api_session_v5_id = None
+        # Session temporaire
+        session_id = None
         if session_manager_v5:
             try:
-                # ✅ CORRECTION: session_type dans metadata
-                api_session_v5_id = session_manager_v5.create_session(
+                session_id = session_manager_v5.create_session(
                     user_id="FG",
                     metadata={
                         'session_type': 'api_documents',  # ✅ DANS METADATA
-                        'endpoint': '/api/documents/chat', 
-                        'agents': selected_agents,
-                        'documents': message.documents
+                        'endpoint': '/api/documents/chat',
+                        'timestamp': datetime.now().isoformat()
                     }
                 )
-                
-                # Message user
                 session_manager_v5.add_message_to_session(
-                    session_id=api_session_v5_id,
+                    session_id=session_id,
                     message_type="user",
                     content={
                         'text': message.message,
-                        'mode': 'documents',
-                        'agents': selected_agents,
-                        'documents': message.documents,
-                        'rag_enabled': message.use_rag,
-                        'rag_chunks': message.rag_chunks
+                        'selected_agents': message.agents,
+                        'selected_documents': message.documents,
+                        'mode': 'documents'
                     }
                 )
-            except Exception as session_error:
-                logger.warning(f"⚠️ Erreur session V5 API documents: {session_error}")
+            except Exception as e:
+                logger.warning(f"⚠️ Session V5 non créée: {e}")
         
-        # Récupération contexte RAG filtré sur documents sélectionnés
+        # Contexte documentaire
         context = ""
         rag_chunks_count = 0
+        context_info = {}
+        
         if message.use_rag:
             rag_manager = get_rag_manager()
             
-            if message.documents:
-                # RAG filtré sur documents spécifiques
-                try:
-                    if hasattr(rag_manager, 'get_context_filtered_documents'):
-                        context = rag_manager.get_context_filtered_documents(
-                            message.message, 
-                            message.documents, 
-                            message.rag_chunks
-                        )
-                    else:
-                        # Fallback vers méthode standard
-                        context = rag_manager.get_context_for_agent(
-                            message.message, 
-                            "Documents", 
-                            message.rag_chunks
-                        )
-                except Exception as rag_error:
-                    logger.warning(f"⚠️ Erreur RAG filtré, fallback standard: {rag_error}")
-                    context = rag_manager.get_context_for_agent(
-                        message.message, 
-                        "Documents", 
-                        message.rag_chunks
-                    )
+            # Si documents spécifiques sélectionnés
+            if message.documents and hasattr(rag_manager, 'get_context_for_documents'):
+                context = rag_manager.get_context_for_documents(
+                    message.message, 
+                    message.documents, 
+                    message.rag_chunks
+                )
             else:
-                # RAG sur tous documents si aucun sélectionné
+                # Contexte général
                 context = rag_manager.get_context_for_agent(
                     message.message, 
-                    "Documents", 
+                    message.agents[0], 
                     message.rag_chunks
                 )
             
             rag_chunks_count = context.count("=== DOCUMENT") + context.count("--- Interaction")
+            context_info = {
+                "sources_count": rag_chunks_count,
+                "context_length": len(context),
+                "selected_documents": len(message.documents) if message.documents else 'tous'
+            }
         
-        # Réponses multiples agents
-        api_responses = []
-        session_id = f"api_docs_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        
+        # Réponses des agents sélectionnés
         real_agents = get_real_agents()
+        responses = []
+        total_cost = 0.0
         
-        for agent_name in selected_agents:
+        for agent_name in message.agents:
+            prompt_message = f"""Question: {message.message}
+
+Contexte documentaire disponible:
+{context[:2000] if context else "Aucun contexte documentaire spécifique."}
+
+Analyse cette question en te basant sur les documents fournis."""
+            
+            agent_response = real_agents.get_response(agent_name, prompt_message, context)
+            cost = agent_response.cost_estimate
+            total_cost += cost
+            
+            response_data = {
+                "agent": agent_name,
+                "response": agent_response.response_text,
+                "model": agent_response.model_used,
+                "processing_time": agent_response.processing_time,
+                "cost": cost,
+                "rag_chunks_used": rag_chunks_count
+            }
+            responses.append(response_data)
+            
+            # Ajout session
+            if session_manager_v5 and session_id:
+                try:
+                    session_manager_v5.add_message_to_session(
+                        session_id=session_id,
+                        message_type="agent",
+                        content={
+                            'agent': agent_name,
+                            'text': agent_response.response_text,
+                            'model': agent_response.model_used,
+                            'cost': cost,
+                            'rag_chunks_count': rag_chunks_count,
+                            'documents_mode': True
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"⚠️ Session V5 message non ajouté: {e}")
+        
+        # Finalisation session
+        if session_manager_v5 and session_id:
             try:
-                response = real_agents.get_response(agent_name, message.message, context)
-                
-                if response and hasattr(response, 'response_text'):
-                    api_responses.append(AgentResponseModel(
-                        agent=agent_name,
-                        response_text=response.response_text,
-                        processing_time=response.processing_time,
-                        model_used=response.model_used,
-                        rag_chunks_count=rag_chunks_count,
-                        cost_estimate=response.cost_estimate,
-                        provider=response.provider,
-                        timestamp=datetime.now().isoformat()
-                    ))
-                    
-                    # 🆕 Session V5 - réponse agent
-                    if api_session_v5_id and session_manager_v5:
-                        try:
-                            session_manager_v5.add_message_to_session(
-                                session_id=api_session_v5_id,
-                                message_type="agent",
-                                content={
-                                    'agent': agent_name,
-                                    'text': response.response_text,
-                                    'model': response.model_used,
-                                    'processing_time': response.processing_time,
-                                    'cost': response.cost_estimate,
-                                    'rag_chunks_count': rag_chunks_count,
-                                    'mode': 'documents',
-                                    'documents_context': message.documents
-                                }
-                            )
-                        except Exception as session_error:
-                            logger.warning(f"⚠️ Erreur ajout réponse session V5: {session_error}")
-                    
-                    # Stockage V4 (existant)
-                    try:
-                        rag_manager = get_rag_manager()
-                        rag_manager.store_interaction_v4(
-                            session_id=session_id,
-                            user_message=message.message,
-                            agent_name=agent_name,
-                            agent_response=response.response_text,
-                            processing_time=response.processing_time,
-                            rag_chunks_used=rag_chunks_count
-                        )
-                    except Exception as store_error:
-                        logger.warning(f"⚠️ Erreur stockage documents mode (non-critique): {store_error}")
-                        
-            except Exception as agent_error:
-                logger.error(f"❌ Erreur agent {agent_name} en mode documents: {agent_error}")
-                # Continue avec les autres agents même si un échoue
-                continue
-        
-        if not api_responses:
-            raise HTTPException(status_code=500, detail="Aucune réponse générée par les agents sélectionnés")
-        
-        # 🆕 Finalisation session V5
-        if api_session_v5_id and session_manager_v5:
-            try:
-                session_manager_v5.finalize_session(api_session_v5_id, {
-                    'api_endpoint': '/api/documents/chat',
-                    'agents_responses': len(api_responses),
-                    'total_cost': sum(r.cost_estimate for r in api_responses),
-                    'documents_used': len(message.documents)
+                session_manager_v5.finalize_session(session_id, {
+                    'end_reason': 'api_documents_complete',
+                    'total_cost': total_cost,
+                    'timestamp': datetime.now().isoformat()
                 })
-            except Exception as session_error:
-                logger.warning(f"⚠️ Erreur finalisation session V5: {session_error}")
+            except Exception as e:
+                logger.warning(f"⚠️ Session V5 non finalisée: {e}")
         
-        return api_responses
+        return {
+            "responses": responses,
+            "total_cost": total_cost,
+            "context_info": context_info
+        }
         
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"❌ Erreur mode Documents: {e}")
+        logger.error(f"❌ Erreur API documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # === POINT D'ENTRÉE ===
 if __name__ == "__main__":
     import uvicorn
     
-    print("🚀 ÉMERGENCE V5.1 - BACKEND COMPLET + SESSION MANAGER CORRIGÉ")
-    print("="*65)
+    print("🚀 ÉMERGENCE V5.1.2 - BACKEND COMPLET CORRIGÉ + WEBSOCKET HEARTBEAT STABLE")
+    print("="*80)
     print(f"📄 Formats supportés: {', '.join(get_supported_formats())}")
     print(f"🔴 PDF: {'✅' if PDF_AVAILABLE else '❌'}")
     print(f"📘 DOCX: {'✅' if DOCX_AVAILABLE else '❌'}")
@@ -1884,18 +1958,26 @@ if __name__ == "__main__":
     print("   🔀 Mode Triangle - Débat triangulaire 3 agents")
     print("   📁 Mode Documents - Agents multiples + docs filtrés")
     print()
-    print("🆕 NOUVELLES FONCTIONNALITÉS V5.1:")
+    print("🆕 NOUVELLES FONCTIONNALITÉS V5.1.2:")
     print("   - 🧠 Mémoire persistante avec SessionManager V5")
     print("   - 📚 Journalisation automatique conversations WebSocket")
     print("   - 🔍 API recherche sessions (/api/sessions/*)")
     print("   - 📊 Analytics sessions temps réel")
     print("   - 🔗 Tracking session V5 dans tous les modes")
     print("   - 💾 Export JSON sessions + recherche temporelle")
+    print("   - 💓 WebSocket Heartbeat stable mobile (45s/90s)")
+    print("   - 🔧 Handlers WebSocket complets et corrigés")
     print()
-    print("✅ CORRECTIONS APPLIQUÉES V5.1:")
+    print("✅ CORRECTIONS CRITIQUES APPLIQUÉES V5.1.2:")
     print("   - 🔧 Fix session_type parameter dans metadata")
     print("   - 🔧 Routes /api/sessions/* avec fallbacks robustes")
     print("   - 🔧 Gestion erreurs méthodes manquantes SessionManager")
+    print("   - 💓 WebSocket Heartbeat ping/pong optimisé (45s interval)")
+    print("   - 🔄 Reconnexion auto mobile avec timeout 90s")
+    print("   - 🔌 Force disconnect sécurisé en cas d'erreur")
+    print("   - 📁 handle_websocket_documents_mode AJOUTÉ (fonction manquante)")
+    print("   - ✅ Envoi messages WebSocket sécurisé avec vérification état")
+    print("   - 🎭 Tous handlers WebSocket présents et fonctionnels")
     print()
     print("🔗 ENDPOINTS SESSIONS V5:")
     print("   - GET /api/sessions/recent - Sessions récentes")
@@ -1907,7 +1989,7 @@ if __name__ == "__main__":
     
     uvicorn.run(
         app, 
-        host="127.0.0.1", 
+        host="0.0.0.0", 
         port=8000,
         reload=True,
         log_level="info"

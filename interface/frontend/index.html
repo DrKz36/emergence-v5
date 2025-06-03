@@ -90,7 +90,7 @@
             margin-top: 8px;
         }
 
-        /* === STATUS CONNEXION === */
+        /* === STATUS CONNEXION AMÉLIORÉ === */
         .connection-status {
             display: flex;
             align-items: center;
@@ -100,6 +100,7 @@
             background: rgba(255, 255, 255, 0.05);
             border-radius: 20px;
             margin-bottom: 15px;
+            transition: all 0.3s ease;
         }
 
         .status-dot {
@@ -108,10 +109,32 @@
             border-radius: 50%;
             background: #ff6b6b;
             transition: all 0.3s ease;
+            position: relative;
         }
 
-        .status-dot.connected { background: #4ecdc4; }
-        .status-dot.connecting { background: #ffa500; }
+        .status-dot.connected { 
+            background: #4ecdc4; 
+            box-shadow: 0 0 6px rgba(78, 205, 196, 0.6);
+        }
+        
+        .status-dot.connecting { 
+            background: #ffa500; 
+            animation: pulse 1.5s infinite;
+        }
+
+        .status-dot.reconnecting { 
+            background: #ff6b6b; 
+            animation: pulse 1s infinite;
+        }
+
+        .status-dot.offline { 
+            background: #666; 
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+        }
 
         /* === SECTION MODES V5 === */
         .modes-section {
@@ -799,6 +822,17 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
+        /* === ERROR STATES === */
+        .connection-error {
+            background: rgba(255, 107, 107, 0.1);
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            color: #ff6b6b;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            margin-bottom: 15px;
+        }
+
         /* === SCROLLBAR CUSTOM === */
         .chat-messages::-webkit-scrollbar,
         .documents-list::-webkit-scrollbar,
@@ -897,11 +931,14 @@
                 </div>
             </div>
             
-            <!-- CONNECTION STATUS -->
+            <!-- CONNECTION STATUS AMÉLIORÉ -->
             <div class="connection-status">
                 <div class="status-dot" id="connectionDot"></div>
                 <span id="connectionText">Connexion...</span>
             </div>
+            
+            <!-- ERROR NOTIFICATIONS -->
+            <div id="connectionError" class="connection-error" style="display: none;"></div>
             
             <!-- MODES V5 -->
             <div class="modes-section">
@@ -1105,7 +1142,7 @@
     </div>
 
     <script>
-        // === VARIABLES GLOBALES V5 ===
+        // === VARIABLES GLOBALES V5 + WEBSOCKET MOBILE STABLE ===
         let ws = null;
         let currentMode = 'dialogue';
         let selectedAgent = 'anima';
@@ -1124,6 +1161,15 @@
         };
         let conversationHistory = []; // 🆕 Pour export
 
+        // 🔥 NOUVELLES VARIABLES POUR WEBSOCKET MOBILE STABLE
+        let reconnectAttempts = 0;
+        let maxReconnectAttempts = 5;
+        let reconnectDelay = 2000; // 2 secondes initial
+        let heartbeatInterval = null;
+        let heartbeatTimer = 30000; // 30 secondes
+        let connectionTimeout = null;
+        let isManualClose = false;
+
         // === INITIALISATION ===
         document.addEventListener('DOMContentLoaded', function() {
             initializeApp();
@@ -1133,6 +1179,7 @@
             currentSessionId = `session_${Math.random().toString(36).substr(2, 9)}_${Date.now()}`;
             console.log(`🚀 ÉMERGENCE V5 - Session: ${currentSessionId}`);
             
+            isManualClose = false; // Reset flag
             connectWebSocket();
             loadDocuments();
             setupEventListeners();
@@ -1140,12 +1187,267 @@
             
             // Auto-resize textarea normal
             const textarea = document.getElementById('messageInput');
-            textarea.addEventListener('input', autoResizeTextarea);
+            if (textarea) {
+                textarea.addEventListener('input', autoResizeTextarea);
+            }
             
             // Auto-resize textarea Triangle
             const triangleTextarea = document.getElementById('triangleMessageInput');
             if (triangleTextarea) {
                 triangleTextarea.addEventListener('input', autoResizeTriangleTextarea);
+            }
+            
+            console.log('✅ ÉMERGENCE V5 initialisé avec WebSocket mobile stable');
+        }
+
+        // === WEBSOCKET AVEC HEARTBEAT + RECONNEXION AUTO ===
+        function connectWebSocket() {
+            const wsUrl = `ws://localhost:8000/ws/${currentSessionId}`;
+            console.log(`🔌 Connexion WebSocket tentative ${reconnectAttempts + 1}: ${wsUrl}`);
+            
+            updateConnectionStatus('connecting');
+            hideConnectionError();
+            
+            // Timeout de connexion (important pour mobile)
+            connectionTimeout = setTimeout(() => {
+                if (ws && ws.readyState === WebSocket.CONNECTING) {
+                    console.log('⏰ Timeout connexion WebSocket');
+                    ws.close();
+                    handleReconnection();
+                }
+            }, 10000); // 10 secondes timeout
+            
+            try {
+                ws = new WebSocket(wsUrl);
+                
+                ws.onopen = function() {
+                    console.log('✅ WebSocket connecté');
+                    isConnected = true;
+                    reconnectAttempts = 0;
+                    reconnectDelay = 2000; // Reset delay
+                    
+                    clearTimeout(connectionTimeout);
+                    updateConnectionStatus('connected');
+                    hideConnectionError();
+                    startHeartbeat();
+                };
+                
+                ws.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        
+                        // 🔥 GESTION MESSAGE HEARTBEAT
+                        if (data.type === 'pong') {
+                            console.log('💓 Pong reçu');
+                            return;
+                        }
+                        
+                        handleWebSocketMessage(data);
+                    } catch (e) {
+                        console.error(`❌ Erreur parsing JSON: ${e.message}`);
+                    }
+                };
+                
+                ws.onclose = function(event) {
+                    console.log(`🔌 WebSocket fermé - Code: ${event.code}, Raison: ${event.reason}`);
+                    isConnected = false;
+                    clearTimeout(connectionTimeout);
+                    stopHeartbeat();
+                    updateConnectionStatus('disconnected');
+                    
+                    // Reconnexion auto seulement si pas de fermeture manuelle
+                    if (!isManualClose) {
+                        handleReconnection();
+                    }
+                };
+                
+                ws.onerror = function(error) {
+                    console.error(`❌ Erreur WebSocket: ${error}`);
+                    clearTimeout(connectionTimeout);
+                    updateConnectionStatus('error');
+                    showConnectionError('Erreur de connexion WebSocket');
+                };
+                
+            } catch (error) {
+                console.error(`❌ Exception création WebSocket: ${error}`);
+                clearTimeout(connectionTimeout);
+                showConnectionError(`Impossible de créer la connexion: ${error.message}`);
+                handleReconnection();
+            }
+        }
+
+        // 🔥 GESTION RECONNEXION INTELLIGENTE
+        function handleReconnection() {
+            if (isManualClose || reconnectAttempts >= maxReconnectAttempts) {
+                console.log(`🛑 Arrêt reconnexions (tentatives: ${reconnectAttempts}, manuel: ${isManualClose})`);
+                updateConnectionStatus('failed');
+                showConnectionError(`Connexion échouée après ${maxReconnectAttempts} tentatives`);
+                return;
+            }
+            
+            reconnectAttempts++;
+            const delay = reconnectDelay * Math.pow(1.5, reconnectAttempts - 1); // Backoff exponentiel
+            
+            console.log(`🔄 Reconnexion dans ${delay}ms (tentative ${reconnectAttempts}/${maxReconnectAttempts})`);
+            updateConnectionStatus('reconnecting');
+            
+            setTimeout(() => {
+                if (!isManualClose) {
+                    connectWebSocket();
+                }
+            }, delay);
+        }
+
+        // 🔥 HEARTBEAT POUR DÉTECTER DÉCONNEXIONS
+        function startHeartbeat() {
+            stopHeartbeat(); // Clear existing
+            
+            heartbeatInterval = setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    console.log('💓 Envoi ping');
+                    ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
+                } else {
+                    console.log('💔 WebSocket fermé, arrêt heartbeat');
+                    stopHeartbeat();
+                }
+            }, heartbeatTimer);
+        }
+
+        function stopHeartbeat() {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
+        }
+
+        // 🔥 FERMETURE PROPRE
+        function closeWebSocket() {
+            isManualClose = true;
+            stopHeartbeat();
+            
+            if (ws) {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.close(1000, 'Manual close');
+                }
+                ws = null;
+            }
+            
+            updateConnectionStatus('disconnected');
+            console.log('🔌 WebSocket fermé manuellement');
+        }
+
+        // 🔥 DETECTION VISIBILITÉ PAGE (mobile)
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                console.log('📱 Page cachée');
+                // Pas de fermeture automatique, juste log
+            } else {
+                console.log('📱 Page visible');
+                // Vérifier connexion si page redevient visible
+                if (!isConnected && !isManualClose) {
+                    console.log('🔄 Reconnexion page visible');
+                    reconnectAttempts = 0; // Reset attempts
+                    connectWebSocket();
+                }
+            }
+        });
+
+        // 🔥 DETECTION CONNEXION RÉSEAU (mobile)
+        window.addEventListener('online', function() {
+            console.log('🌐 Réseau en ligne');
+            if (!isConnected && !isManualClose) {
+                console.log('🔄 Reconnexion réseau disponible');
+                reconnectAttempts = 0;
+                connectWebSocket();
+            }
+        });
+
+        window.addEventListener('offline', function() {
+            console.log('📵 Réseau hors ligne');
+            updateConnectionStatus('offline');
+            showConnectionError('Connexion réseau perdue');
+        });
+
+        // 🔥 STATUS CONNEXION ÉTENDU
+        function updateConnectionStatus(status) {
+            const dot = document.getElementById('connectionDot');
+            const text = document.getElementById('connectionText');
+            
+            if (!dot || !text) return;
+            
+            dot.className = 'status-dot';
+            
+            switch(status) {
+                case 'connected':
+                    dot.classList.add('connected');
+                    text.textContent = 'Connecté';
+                    break;
+                case 'connecting':
+                    dot.classList.add('connecting');
+                    text.textContent = 'Connexion...';
+                    break;
+                case 'reconnecting':
+                    dot.classList.add('reconnecting');
+                    text.textContent = `Reconnexion... (${reconnectAttempts}/${maxReconnectAttempts})`;
+                    break;
+                case 'failed':
+                    text.textContent = 'Connexion échouée';
+                    break;
+                case 'offline':
+                    dot.classList.add('offline');
+                    text.textContent = 'Hors ligne';
+                    break;
+                case 'error':
+                    text.textContent = 'Erreur connexion';
+                    break;
+                default:
+                    text.textContent = 'Déconnecté';
+                    break;
+            }
+        }
+
+        // 🔥 GESTION ERREURS CONNEXION
+        function showConnectionError(message) {
+            const errorDiv = document.getElementById('connectionError');
+            if (errorDiv) {
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+            }
+        }
+
+        function hideConnectionError() {
+            const errorDiv = document.getElementById('connectionError');
+            if (errorDiv) {
+                errorDiv.style.display = 'none';
+            }
+        }
+
+        // 🔥 ENVOI MESSAGE SÉCURISÉ
+        function sendWebSocketMessage(payload) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                console.log('❌ WebSocket non disponible pour envoi');
+                
+                // Afficher message d'erreur
+                displayError('Connexion WebSocket fermée. Reconnexion en cours...');
+                showConnectionError('Connexion perdue. Tentative de reconnexion...');
+                
+                // Tenter reconnexion si pas déjà en cours
+                if (!isConnected && !isManualClose) {
+                    handleReconnection();
+                }
+                
+                return false;
+            }
+            
+            try {
+                ws.send(JSON.stringify(payload));
+                console.log(`📡 Message envoyé:`, payload.type);
+                return true;
+            } catch (error) {
+                console.error(`❌ Erreur envoi WebSocket: ${error}`);
+                displayError(`Erreur envoi: ${error.message}`);
+                showConnectionError(`Erreur envoi: ${error.message}`);
+                return false;
             }
         }
 
@@ -1250,42 +1552,6 @@
             console.log(`🤖 Agents sélectionnés:`, selectedAgents);
         }
 
-        // === WEBSOCKET - COMPATIBLE V4 ===
-        function connectWebSocket() {
-            const wsUrl = `ws://localhost:8000/ws/${currentSessionId}`;
-            console.log(`🔌 Connexion WebSocket: ${wsUrl}`);
-            
-            updateConnectionStatus('connecting');
-            ws = new WebSocket(wsUrl);
-            
-            ws.onopen = function() {
-                isConnected = true;
-                updateConnectionStatus('connected');
-                console.log('✅ WebSocket connecté');
-            };
-            
-            ws.onmessage = function(event) {
-                try {
-                    const data = JSON.parse(event.data);
-                    handleWebSocketMessage(data);
-                } catch (e) {
-                    console.error(`❌ Erreur parsing JSON: ${e.message}`);
-                }
-            };
-            
-            ws.onclose = function() {
-                isConnected = false;
-                updateConnectionStatus('disconnected');
-                console.log('🔌 WebSocket fermé');
-                
-                setTimeout(() => connectWebSocket(), 3000);
-            };
-            
-            ws.onerror = function(error) {
-                console.error(`❌ Erreur WebSocket: ${error}`);
-            };
-        }
-
         function handleWebSocketMessage(data) {
             console.log(`📨 Message reçu:`, data);
             
@@ -1342,49 +1608,26 @@
             }
         }
 
-        function updateConnectionStatus(status) {
-            const dot = document.getElementById('connectionDot');
-            const text = document.getElementById('connectionText');
-            
-            dot.className = 'status-dot';
-            
-            switch(status) {
-                case 'connected':
-                    dot.classList.add('connected');
-                    text.textContent = 'Connecté';
-                    break;
-                case 'connecting':
-                    dot.classList.add('connecting');
-                    text.textContent = 'Connexion...';
-                    break;
-                default:
-                    text.textContent = 'Déconnecté';
-                    break;
-            }
-        }
-
         function updateCostDisplay() {
-            document.getElementById('costAnima').textContent = `$${sessionCosts.anima.toFixed(4)}`;
-            document.getElementById('costNeo').textContent = `$${sessionCosts.neo.toFixed(4)}`;
-            document.getElementById('costNexus').textContent = `$${sessionCosts.nexus.toFixed(4)}`;
-            document.getElementById('costTriple').textContent = `$${sessionCosts.triple.toFixed(4)}`;
-            document.getElementById('costTotal').textContent = `$${sessionCosts.total.toFixed(4)}`;
+            document.getElementById('costAnima').textContent = `${sessionCosts.anima.toFixed(4)}`;
+            document.getElementById('costNeo').textContent = `${sessionCosts.neo.toFixed(4)}`;
+            document.getElementById('costNexus').textContent = `${sessionCosts.nexus.toFixed(4)}`;
+            document.getElementById('costTriple').textContent = `${sessionCosts.triple.toFixed(4)}`;
+            document.getElementById('costTotal').textContent = `${sessionCosts.total.toFixed(4)}`;
         }
 
-        // === MESSAGES ===
+        // === 🔥 FONCTIONS SEND MODIFIÉES POUR SÉCURITÉ ===
         function sendMessage() {
             const input = document.getElementById('messageInput');
             const message = input.value.trim();
             
-            if (!message || !isConnected) {
-                console.log('❌ Message vide ou pas connecté');
+            if (!message) {
+                console.log('❌ Message vide');
                 return;
             }
             
             // Afficher message utilisateur
             displayUserMessage(message);
-            
-            // 🆕 Stockage pour export
             addToConversationHistory('user', message, null, { mode: currentMode });
             
             // Vider input
@@ -1394,7 +1637,7 @@
             let payload;
             
             if (currentMode === 'triangle') {
-                showTypingIndicator('Mode Triple');
+                showTypingIndicator('Mode Triangle');
                 payload = {
                     type: 'triple',
                     message: message,
@@ -1422,8 +1665,13 @@
                 };
             }
             
-            console.log(`📡 Envoi:`, payload);
-            ws.send(JSON.stringify(payload));
+            // 🔥 ENVOI SÉCURISÉ
+            const success = sendWebSocketMessage(payload);
+            if (!success) {
+                // Rollback si échec envoi
+                hideTypingIndicator();
+                displayError('Impossible d\'envoyer le message. Vérifiez votre connexion.');
+            }
         }
 
         // 🔥 FIX MODE TRIANGLE - FONCTION CORRIGÉE
@@ -1444,22 +1692,19 @@
             const input = document.getElementById('triangleMessageInput');
             const message = input.value.trim();
             
-            if (!message || !isConnected) {
-                console.log('❌ Message vide ou pas connecté');
+            if (!message) {
+                console.log('❌ Message triangle vide');
                 return;
             }
             
             // Afficher message utilisateur dans les 3 colonnes
             displayUserMessage(message);
-            
-            // 🆕 Stockage pour export
             addToConversationHistory('user', message, null, { mode: 'triangle' });
             
             // Vider input
             input.value = '';
             autoResizeTriangleTextarea.call(input);
             
-            // 🔥 PAYLOAD CORRECT POUR MODE TRIANGLE
             const payload = {
                 type: 'triple',
                 message: message,
@@ -1468,10 +1713,14 @@
             };
             
             console.log(`🔺 Lancement Mode Triangle:`, payload);
-            showTypingIndicator('Mode Triple');
+            showTypingIndicator('Mode Triangle');
             
-            // Envoi WebSocket
-            ws.send(JSON.stringify(payload));
+            // 🔥 ENVOI SÉCURISÉ
+            const success = sendWebSocketMessage(payload);
+            if (!success) {
+                hideTypingIndicator();
+                displayError('Impossible de lancer le débat triangulaire. Vérifiez votre connexion.');
+            }
         }
 
         function handleTriangleInputKeydown(event) {
@@ -1537,7 +1786,7 @@
                 if (metadata.model) items.push(`<span class="metadata-item">${metadata.model}</span>`);
                 if (metadata.processing_time) items.push(`<span class="metadata-item">${metadata.processing_time.toFixed(2)}s</span>`);
                 if (metadata.rag_chunks !== undefined) items.push(`<span class="metadata-item">RAG: ${metadata.rag_chunks}</span>`);
-                if (metadata.cost_estimate) items.push(`<span class="metadata-item">$${metadata.cost_estimate.toFixed(4)}</span>`);
+                if (metadata.cost_estimate) items.push(`<span class="metadata-item">${metadata.cost_estimate.toFixed(4)}</span>`);
                 
                 if (items.length > 0) {
                     metadataHtml = `<div class="message-metadata">${items.join('')}</div>`;
@@ -1569,7 +1818,7 @@
             
             let costInfo = '';
             if (metadata && metadata.cost_estimate) {
-                costInfo = ` ($${metadata.cost_estimate.toFixed(4)})`;
+                costInfo = ` (${metadata.cost_estimate.toFixed(4)})`;
             }
             
             const agentIcons = {
@@ -1942,7 +2191,13 @@
             }
         });
 
-        console.log('🎉 ÉMERGENCE V5 Interface chargée - Mode Triangle CORRIGÉ + Export fonctionnel');
+        // === 🔥 CLEANUP PAGE UNLOAD ===
+        window.addEventListener('beforeunload', function() {
+            console.log('📱 Page fermée, cleanup WebSocket');
+            closeWebSocket();
+        });
+
+        console.log('🎉 ÉMERGENCE V5 Interface chargée - WebSocket Mobile Stable + Heartbeat + Reconnexion Auto');
     </script>
 </body>
 </html>
